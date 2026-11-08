@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BOOM PULSE 1000 CLOUD</title>
+<style>
+body{margin:0;background:#101722;color:white;font-family:Arial;padding:20px}
+.card{background:#1c2938;padding:20px;border-radius:14px;margin:14px 0}
+h1{color:#55d6a3;font-size:23px}
+.price{font-size:36px;font-weight:bold;margin:15px 0}
+.status{color:#ffc857}
+button{background:#20b982;color:#071b15;border:0;padding:13px;border-radius:9px;font-weight:bold}
+small{color:#aab7c5}
+</style>
+</head>
+<body>
+<h1>BOOM PULSE 1000 CLOUD</h1>
+<div class="card">
+  <div>CONEXIÓN DERIV</div>
+  <p id="status" class="status">Conectando...</p>
+  <small id="symbol">Buscando Boom 1000...</small>
+  <div id="price" class="price">---</div>
+  <small id="time">Esperando cotización</small>
+</div>
+<div class="card">
+  <h3>ANÁLISIS DEL MERCADO</h3>
+  <p>Marco principal: M5</p>
+  <p>Entrada: M1</p>
+  <p>Operaciones permitidas: BUY</p>
+  <p id="analysis">Esperando datos...</p>
+</div>
+<div class="card">
+  <h3>SEÑALES</h3>
+  <p id="signal">Sin señales todavía.</p>
+  <small>Esta versión todavía no genera entradas.</small>
+</div>
+<button onclick="connect()">Reconectar</button>
+<script>
+let ws;
+let symbol=null;
+
+function status(t){
+ document.getElementById("status").textContent=t;
+}
+
+function connect(){
+ if(ws) ws.close();
+ status("Conectando con Deriv...");
+ document.getElementById("price").textContent="---";
+ ws=new WebSocket("wss://api.derivws.com/trading/v1/options/ws/public");
+
+ ws.onopen=()=>{
+  status("Conectado. Buscando mercados...");
+  ws.send(JSON.stringify({
+   active_symbols:"brief",
+   req_id:1
+  }));
+ };
+
+ ws.onmessage=(event)=>{
+  const d=JSON.parse(event.data);
+
+  if(d.error){
+   status("Error: "+d.error.message);
+   return;
+  }
+
+  if(d.msg_type==="active_symbols"){
+   const markets=d.active_symbols||[];
+   const found=markets.find(x=>
+    /boom\s*1000/i.test(x.display_name||"")
+   );
+
+   if(!found){
+    status("No se encontró Boom 1000");
+    document.getElementById("symbol").textContent=
+      "Revisar mercados disponibles";
+    return;
+   }
+
+   symbol=found.symbol;
+   document.getElementById("symbol").textContent=
+     (found.display_name||symbol)+" ("+symbol+")";
+
+   ws.send(JSON.stringify({
+    ticks:symbol,
+    subscribe:1,
+    req_id:2
+   }));
+  }
+
+  if(d.msg_type==="tick"){
+   const t=d.tick;
+   document.getElementById("price").textContent=t.quote;
+   document.getElementById("time").textContent=
+     new Date(t.epoch*1000).toLocaleTimeString();
+   status("Recibiendo precios en vivo");
+   document.getElementById("analysis").textContent=
+     "Datos recibidos. Análisis técnico pendiente.";
+  }
+ };
+
+ ws.onerror=()=>{
+  status("Error de conexión");
+ };
+
+ ws.onclose=()=>{
+  status("Conexión cerrada");
+ };
+}
+
+connect();
+</script>
+</body>
+</html>
