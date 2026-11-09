@@ -4,32 +4,45 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BOOM PULSE 1000 LIVE V1</title>
+<title>BOOM PULSE + STEP PULSE CLOUD</title>
 <style>
 body{background:#101722;color:#fff;font-family:Arial;padding:15px}
 .panel{max-width:650px;margin:auto}
 .card{background:#1c2939;padding:16px;border-radius:12px;margin:13px 0}
-h1{color:#55d6a3}
+h1{color:#55d6a3;font-size:23px}
 .price{font-size:32px;color:#55d6a3;font-weight:bold}
 .good{color:#55d6a3}.wait{color:#ffc45c}.bad{color:#ff7777}
-button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8px}
-table{width:100%;border-collapse:collapse;font-size:12px}
-td,th{text-align:center;padding:7px;border-bottom:1px solid #405064}
+button,select{background:#168b68;color:white;border:0;padding:13px 16px;border-radius:8px;margin:5px}
+select{background:#263b50;width:100%;font-size:16px}
+p{line-height:1.5}
+.small{font-size:12px;color:#aab8c8}
 </style>
 </head>
 <body>
 <div class="panel">
-<h1>BOOM PULSE 1000 LIVE V1</h1>
+
+<h1>PULSE PRO CLOUD</h1>
+<p class="small">BOOM 1000 + STEP INDEX | Señales manuales</p>
+
+<div class="card">
+<h3>SELECCIONAR MERCADO</h3>
+<select id="mercado" onchange="cambiarMercado()">
+<option value="BOOM1000">BOOM 1000 - SOLO BUY</option>
+<option value="STEP">STEP INDEX - BUY / SELL</option>
+</select>
+<p id="tipo">Estrategia: BUY únicamente</p>
+</div>
 
 <div class="card">
 <h3>CONEXIÓN DERIV</h3>
 <p id="estado">Conectando...</p>
-<p id="detalle">Preparando datos</p>
-<button onclick="conectar()">REConectar</button>
+<p id="detalle">Buscando mercados disponibles...</p>
+<button onclick="conectar()">RECONECTAR</button>
+<button onclick="activarAlertas()">ACTIVAR ALERTAS</button>
 </div>
 
 <div class="card">
-<h3>BOOM 1000 INDEX</h3>
+<h3 id="nombreMercado">BOOM 1000 INDEX</h3>
 <div class="price" id="precio">Esperando...</div>
 <p id="ticks">Ticks: 0</p>
 </div>
@@ -44,30 +57,32 @@ td,th{text-align:center;padding:7px;border-bottom:1px solid #405064}
 </div>
 
 <div class="card">
-<h2 id="senal" class="wait">ESPERANDO CONFIRMACIÓN BUY</h2>
+<h2 id="senal" class="wait">ESPERANDO CONFIRMACIÓN</h2>
 <p id="motivo">Analizando mercado...</p>
 <p id="entrada">Entrada: --</p>
 <p id="sl">Stop Loss: --</p>
 <p id="tp1">TP1: --</p>
 <p id="tp2">TP2: --</p>
 <p id="tp3">TP3: --</p>
+<p class="small">Niveles orientativos. Verificar el precio antes de operar.</p>
 </div>
 
 <div class="card">
-<h3>HISTORIAL DE VELAS</h3>
+<h3>HISTORIAL</h3>
 <p id="m1">M1: esperando...</p>
 <p id="m5">M5: esperando...</p>
 </div>
 
 <div class="card">
 <h3>CONFIGURACIÓN</h3>
-<p>Mercado: BOOM1000</p>
-<p>Marco principal: M5</p>
-<p>Entrada: M1</p>
-<p>Operaciones: BUY únicamente</p>
-<p>Modo: Señales manuales</p>
-<p>Riesgo objetivo: 1% por operación</p>
+<p>Marco de entrada: M1</p>
+<p>Tendencia principal: M5</p>
+<p>BOOM 1000: BUY únicamente</p>
+<p>STEP INDEX: BUY y SELL</p>
+<p>Riesgo objetivo: máximo 1% por operación</p>
+<p>Modo: señales manuales, sin ejecución automática</p>
 </div>
+
 </div>
 
 <script>
@@ -75,8 +90,11 @@ let ws=null;
 let m1=[];
 let ticks=0;
 let pip=3;
-let ultimoMinuto=null;
 let ultimaSenal=null;
+let simbolos={};
+let mercado="BOOM1000";
+let alertas=false;
+let buscando=false;
 
 const $=id=>document.getElementById(id);
 
@@ -96,22 +114,22 @@ function ema(datos,periodo){
 
 function rsi(datos,periodo=14){
  if(datos.length<=periodo)return null;
- let ganancias=0,perdidas=0;
+ let g=0,p=0;
  for(let i=datos.length-periodo;i<datos.length;i++){
-  let cambio=datos[i]-datos[i-1];
-  if(cambio>0)ganancias+=cambio;
-  else perdidas-=cambio;
+  let c=datos[i]-datos[i-1];
+  if(c>0)g+=c;
+  else p-=c;
  }
- if(perdidas===0)return 100;
- let rs=(ganancias/periodo)/(perdidas/periodo);
+ if(p===0)return 100;
+ let rs=g/p;
  return 100-(100/(1+rs));
 }
 
-function atr(velas,periodo=14){
- if(velas.length<periodo+1)return null;
+function atr(datos,periodo=14){
+ if(datos.length<periodo+1)return null;
  let trs=[];
- for(let i=1;i<velas.length;i++){
-  let c=velas[i],p=velas[i-1];
+ for(let i=1;i<datos.length;i++){
+  let c=datos[i],p=datos[i-1];
   trs.push(Math.max(
    c.high-c.low,
    Math.abs(c.high-p.close),
@@ -128,7 +146,7 @@ function agruparM5(datos){
   let c=mapa.get(t);
   if(!c){
    mapa.set(t,{time:t,open:v.open,high:v.high,
-    low:v.low,close:v.close});
+   low:v.low,close:v.close});
   }else{
    c.high=Math.max(c.high,v.high);
    c.low=Math.min(c.low,v.low);
@@ -140,20 +158,49 @@ function agruparM5(datos){
 
 function mostrarDatos(){
  $("m1").textContent="M1: "+m1.length+" velas recibidas";
- let cinco=agruparM5(m1);
- $("m5").textContent="M5: "+cinco.length+" velas recibidas";
+ $("m5").textContent="M5: "+agruparM5(m1).length+" velas recibidas";
+}
+
+function limpiarSenal(){
+ $("senal").textContent="ESPERANDO CONFIRMACIÓN";
+ $("senal").className="wait";
+ $("motivo").textContent="Analizando mercado...";
+ $("entrada").textContent="Entrada: --";
+ $("sl").textContent="Stop Loss: --";
+ $("tp1").textContent="TP1: --";
+ $("tp2").textContent="TP2: --";
+ $("tp3").textContent="TP3: --";
+}
+
+function notificar(titulo,mensaje){
+ if(alertas && "Notification" in window &&
+ Notification.permission==="granted"){
+  new Notification(titulo,{body:mensaje});
+ }
+}
+
+async function activarAlertas(){
+ if(!("Notification" in window)){
+  alert("Este navegador no permite notificaciones.");
+  return;
+ }
+ let permiso=await Notification.requestPermission();
+ if(permiso==="granted"){
+  alertas=true;
+  alert("Alertas activadas.");
+ }else{
+  alert("Debes permitir las notificaciones del navegador.");
+ }
 }
 
 function evaluar(ahora){
  const m5=agruparM5(m1);
- const minutoActual=Math.floor(ahora/60)*60;
- const m5Cerradas=m5.filter(v=>v.time+300<=Math.floor(ahora/300)*300);
+ const cierreM5=Math.floor(ahora/300)*300;
+ const m5Cerradas=m5.filter(v=>v.time+300<=cierreM5);
 
  if(m1.length<16 || m5Cerradas.length<51){
   $("senal").textContent="ESPERANDO HISTORIAL";
-  $("motivo").textContent=
-   "Se necesitan al menos 16 velas M1 y 51 velas M5 cerradas.";
-  $("tendencia").textContent="Tendencia M5: datos insuficientes";
+  $("motivo").textContent="Cargando velas suficientes para analizar.";
   return;
  }
 
@@ -162,68 +209,119 @@ function evaluar(ahora){
  const e50=ema(closes5,50);
  const ultimo5=m5Cerradas[m5Cerradas.length-1];
 
- const cerradas=m1.filter(v=>v.time<minutoActual);
+ const minuto=Math.floor(ahora/60)*60;
+ const cerradas=m1.filter(v=>v.time<minuto);
  if(cerradas.length<16)return;
 
  const closes=cerradas.map(v=>v.close);
  const r=rsi(closes);
  const a=atr(cerradas);
+ if(r===null || a===null || a<=0)return;
+
  const actual=cerradas[cerradas.length-1];
  const anterior=cerradas[cerradas.length-2];
 
- if(r===null||a===null||!a)return;
-
  const cuerpo=actual.close-actual.open;
  const rango=actual.high-actual.low;
- const cierreArriba=rango>0 &&
+
+ const alcista=rango>0 &&
   (actual.high-actual.close)/rango<=0.25;
 
- const tendencia=e20>e50 && ultimo5.close>e20;
- const fuerza=r>=53 && r<=68;
- const impulso=cuerpo>=1.25*a && cierreArriba;
- const ruptura=actual.close>anterior.high;
+ const bajista=rango>0 &&
+  (actual.close-actual.low)/rango<=0.25;
 
- $("tendencia").textContent="Tendencia M5: "+(tendencia?"ALCISTA":"NO ALCISTA");
- $("tendencia").className=tendencia?"good":"wait";
+ const tendenciaBuy=e20>e50 && ultimo5.close>e20;
+ const tendenciaSell=e20<e50 && ultimo5.close<e20;
+
+ let buy=false;
+ let sell=false;
+ let motivoBuy=[];
+ let motivoSell=[];
+
+ if(mercado==="BOOM1000"){
+  const fuerza=r>=53 && r<=68;
+  const impulso=cuerpo>=1.25*a && alcista;
+  const ruptura=actual.close>anterior.high;
+
+  buy=tendenciaBuy && fuerza && impulso && ruptura;
+
+  motivoBuy=[
+   "Tendencia "+(tendenciaBuy?"OK":"NO"),
+   "RSI "+(fuerza?"OK":"NO"),
+   "Impulso "+(impulso?"OK":"NO"),
+   "Ruptura "+(ruptura?"OK":"NO")
+  ];
+ }else{
+  const fuerzaBuy=r>=52 && r<=68;
+  const fuerzaSell=r>=32 && r<=48;
+
+  const impulsoBuy=cuerpo>=1.10*a && alcista;
+  const impulsoSell=cuerpo<=-1.10*a && bajista;
+
+  const rupturaBuy=actual.close>anterior.high;
+  const rupturaSell=actual.close<anterior.low;
+
+  buy=tendenciaBuy && fuerzaBuy && impulsoBuy && rupturaBuy;
+  sell=tendenciaSell && fuerzaSell && impulsoSell && rupturaSell;
+
+  motivoBuy=[
+   "Tendencia "+(tendenciaBuy?"OK":"NO"),
+   "RSI "+(fuerzaBuy?"OK":"NO"),
+   "Impulso "+(impulsoBuy?"OK":"NO"),
+   "Ruptura "+(rupturaBuy?"OK":"NO")
+  ];
+
+  motivoSell=[
+   "Tendencia "+(tendenciaSell?"OK":"NO"),
+   "RSI "+(fuerzaSell?"OK":"NO"),
+   "Impulso "+(impulsoSell?"OK":"NO"),
+   "Ruptura "+(rupturaSell?"OK":"NO")
+  ];
+ }
+
+ $("tendencia").textContent=
+  "M5: BUY "+(tendenciaBuy?"OK":"NO")+
+  " | SELL "+(tendenciaSell?"OK":"NO");
+
  $("ema").textContent="EMA20: "+precio(e20)+" | EMA50: "+precio(e50);
  $("rsi").textContent="RSI 14: "+r.toFixed(2);
  $("atr").textContent="ATR 14: "+precio(a);
- $("impulso").textContent="Impulso M1: "+(impulso?"CONFIRMADO":"NO CONFIRMADO");
+ $("impulso").textContent="Cuerpo M1: "+precio(cuerpo);
 
- const lista=[
-  ["Tendencia M5",tendencia],
-  ["RSI comprador",fuerza],
-  ["Impulso alcista",impulso],
-  ["Ruptura anterior",ruptura]
- ];
- $("motivo").textContent=lista.map(x=>
-  x[0]+": "+(x[1]?"OK":"NO")
- ).join(" | ");
+ let direccion=buy?"BUY":sell?"SELL":null;
 
- const confirmada=tendencia&&fuerza&&impulso&&ruptura;
-
- if(confirmada && ultimaSenal!==actual.time){
-  ultimaSenal=actual.time;
-  const entrada=actual.close;
-  $("senal").textContent="SEÑAL BUY CONFIRMADA";
-  $("senal").className="good";
-  $("entrada").textContent="Entrada: "+precio(entrada);
-  $("sl").textContent="Stop Loss: "+precio(entrada-1.2*a);
-  $("tp1").textContent="TP1: "+precio(entrada+1.0*a);
-  $("tp2").textContent="TP2: "+precio(entrada+1.8*a);
-  $("tp3").textContent="TP3: "+precio(entrada+2.5*a);
-  $("motivo").textContent="Los cuatro filtros BUY coinciden. Señal calculada al cierre de M1.";
- }else if(!confirmada){
-  $("senal").textContent="SIN SEÑAL BUY";
-  $("senal").className="wait";
-  $("entrada").textContent="Entrada: --";
-  $("sl").textContent="Stop Loss: --";
-  $("tp1").textContent="TP1: --";
-  $("tp2").textContent="TP2: --";
-  $("tp3").textContent="TP3: --";
- }else{
-  $("senal").textContent="SEÑAL BUY YA REGISTRADA";
+ if(!direccion){
+  limpiarSenal();
+  $("senal").textContent="SIN SEÑAL";
+  $("motivo").textContent=mercado==="BOOM1000"
+   ?motivoBuy.join(" | ")
+   : "BUY: "+motivoBuy.join(" | ")+" || SELL: "+motivoSell.join(" | ");
+  return;
  }
+
+ const clave=mercado+"-"+direccion+"-"+actual.time;
+ if(ultimaSenal===clave)return;
+ ultimaSenal=clave;
+
+ const entrada=actual.close;
+ const distancia=1.2*a;
+ const stop=direccion==="BUY"?entrada-distancia:entrada+distancia;
+ const tp1=direccion==="BUY"?entrada+a:entrada-a;
+ const tp2=direccion==="BUY"?entrada+1.8*a:entrada-1.8*a;
+ const tp3=direccion==="BUY"?entrada+2.5*a:entrada-2.5*a;
+
+ $("senal").textContent="SEÑAL "+direccion+" CONFIRMADA";
+ $("senal").className="good";
+ $("motivo").textContent="Filtros confirmados al cierre de M1.";
+ $("entrada").textContent="Entrada: "+precio(entrada);
+ $("sl").textContent="Stop Loss: "+precio(stop);
+ $("tp1").textContent="TP1: "+precio(tp1);
+ $("tp2").textContent="TP2: "+precio(tp2);
+ $("tp3").textContent="TP3: "+precio(tp3);
+
+ notificar("PULSE PRO - "+mercado,
+  "Señal "+direccion+" | Entrada: "+precio(entrada)+
+  " | SL: "+precio(stop));
 }
 
 function actualizarVela(v){
@@ -231,9 +329,7 @@ function actualizarVela(v){
  let ultima=m1[m1.length-1];
 
  if(!ultima || minuto>ultima.time){
-  if(ultima){
-   evaluar(v.time);
-  }
+  if(ultima)evaluar(v.time);
   m1.push({
    time:minuto,open:v.price,high:v.price,
    low:v.price,close:v.price
@@ -247,6 +343,43 @@ function actualizarVela(v){
  mostrarDatos();
 }
 
+function cambiarMercado(){
+ mercado=$("mercado").value;
+ $("tipo").textContent=mercado==="BOOM1000"
+  ?"Estrategia: BUY únicamente"
+  :"Estrategia: BUY y SELL";
+ $("nombreMercado").textContent=mercado==="BOOM1000"
+  ?"BOOM 1000 INDEX":"STEP INDEX";
+ conectar();
+}
+
+function iniciarSimbolo(symbol){
+ if(!ws || ws.readyState!==WebSocket.OPEN)return;
+
+ m1=[];
+ ticks=0;
+ ultimaSenal=null;
+ limpiarSenal();
+ $("precio").textContent="Esperando...";
+ $("ticks").textContent="Ticks: 0";
+ $("detalle").textContent="Solicitando historial de "+symbol;
+
+ ws.send(JSON.stringify({
+  ticks_history:symbol,
+  count:500,
+  end:"latest",
+  style:"candles",
+  granularity:60,
+  req_id:10
+ }));
+
+ ws.send(JSON.stringify({
+  ticks:symbol,
+  subscribe:1,
+  req_id:11
+ }));
+}
+
 function conectar(){
  if(ws){
   try{ws.close()}catch(e){}
@@ -254,27 +387,19 @@ function conectar(){
  m1=[];
  ticks=0;
  ultimaSenal=null;
+ simbolos={};
+ limpiarSenal();
+
  $("estado").textContent="Conectando...";
- $("detalle").textContent="Solicitando historial M1";
- $("senal").textContent="ESPERANDO DATOS";
- $("motivo").textContent="Cargando historial...";
+ $("detalle").textContent="Buscando símbolos activos en Deriv...";
 
  ws=new WebSocket("wss://api.derivws.com/trading/v1/options/ws/public");
 
  ws.onopen=()=>{
   $("estado").textContent="Conectado a Deriv";
   ws.send(JSON.stringify({
-   ticks_history:"BOOM1000",
-   count:500,
-   end:"latest",
-   style:"candles",
-   granularity:60,
+   active_symbols:"brief",
    req_id:1
-  }));
-  ws.send(JSON.stringify({
-   ticks:"BOOM1000",
-   subscribe:1,
-   req_id:2
   }));
  };
 
@@ -287,6 +412,36 @@ function conectar(){
    return;
   }
 
+  if(d.msg_type==="active_symbols"){
+   const lista=d.active_symbols||[];
+
+   const boom=lista.find(x=>
+    (x.display_name||"").toLowerCase().includes("boom 1000")
+   );
+   const step=lista.find(x=>
+    (x.display_name||"").toLowerCase()==="step index"
+   );
+
+   simbolos.BOOM1000=boom?.symbol||"BOOM1000";
+   simbolos.STEP=step?.symbol||null;
+
+   if(mercado==="STEP" && !simbolos.STEP){
+    $("estado").textContent="STEP INDEX no encontrado";
+    $("detalle").textContent="No se encontró Step Index en los símbolos activos de Deriv.";
+    return;
+   }
+
+   const simbolo=mercado==="BOOM1000"
+    ?simbolos.BOOM1000:simbolos.STEP;
+
+   if(!simbolo){
+    $("detalle").textContent="No se encontró el símbolo seleccionado.";
+    return;
+   }
+
+   iniciarSimbolo(simbolo);
+  }
+
   if(d.msg_type==="candles" && d.candles){
    m1=d.candles.map(c=>({
     time:Number(c.epoch),
@@ -296,7 +451,6 @@ function conectar(){
     close:Number(c.close)
    })).sort((a,b)=>a.time-b.time);
 
-   pip=d.pip_size??3;
    $("detalle").textContent="Historial M1 cargado: "+m1.length+" velas.";
    mostrarDatos();
   }
@@ -330,6 +484,7 @@ conectar();
 </script>
 </body>
 </html>
+
 
 
 
