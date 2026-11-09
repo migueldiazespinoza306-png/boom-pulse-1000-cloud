@@ -1,86 +1,115 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BOOM PULSE 1000 CLOUD</title>
 <style>
-body{background:#10151f;color:white;font-family:Arial;padding:18px}
-h2{color:#42d392}
-.panel{background:#202b3b;padding:16px;border-radius:12px;margin:12px 0}
-button{padding:12px;background:#42d392;border:0;border-radius:8px;font-weight:bold}
-pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#b8d5ca}
+body{margin:0;background:#101722;color:#fff;font-family:Arial;padding:20px}
+.panel{max-width:600px;margin:auto}
+.card{background:#1c2939;padding:18px;border-radius:12px;margin:14px 0}
+h1{color:#55d6a3;font-size:25px}
+.estado{color:#55d6a3}
+.precio{font-size:36px;font-weight:bold;color:#55d6a3}
+button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8px;font-size:16px}
+small{color:#aab8c8}
 </style>
 </head>
 <body>
-<h2>BOOM PULSE 1000 CLOUD</h2>
 <div class="panel">
+<h1>BOOM PULSE 1000 CLOUD</h1>
+<div class="card">
 <h3>CONEXIÓN DERIV</h3>
-<p id="status">Conectando...</p>
-<button onclick="connect()">RECONectar</button>
+<p id="estado">Conectando...</p>
+<button onclick="conectar()">Reconectar</button>
 </div>
-<div class="panel">
-<h3>MERCADOS BOOM ENCONTRADOS</h3>
-<pre id="markets">Buscando mercados...</pre>
+<div class="card">
+<h3>BOOM 1000 INDEX</h3>
+<div class="precio" id="precio">Esperando precio...</div>
+<p id="hora">Esperando cotización</p>
+<p><small>Símbolo: BOOM1000</small></p>
 </div>
-<div class="panel">
-<h3>DATOS DE CONEXIÓN</h3>
-<pre id="debug">Esperando respuesta...</pre>
+<div class="card">
+<h3>DATOS DEL MERCADO</h3>
+<p id="contador">Ticks recibidos: 0</p>
+<p id="ultimo">Último movimiento: --</p>
+</div>
+<div class="card">
+<h3>ANÁLISIS</h3>
+<p>Marco principal: M5</p>
+<p>Entrada: M1</p>
+<p>Operaciones permitidas: BUY únicamente</p>
+<p id="analisis">Esperando datos suficientes para analizar...</p>
+</div>
 </div>
 <script>
-let ws;
-function connect(){
- if(ws) ws.close();
- document.getElementById("status").textContent="Conectando...";
- document.getElementById("markets").textContent="Consultando mercados...";
- document.getElementById("debug").textContent="Esperando respuesta...";
+let ws=null;
+let total=0;
+let ultimoPrecio=null;
+
+function conectar(){
+ if(ws){try{ws.close()}catch(e){}}
+ total=0;
+ ultimoPrecio=null;
+ document.getElementById("estado").textContent="Conectando con Deriv...";
+ document.getElementById("precio").textContent="Esperando precio...";
+ document.getElementById("contador").textContent="Ticks recibidos: 0";
+ document.getElementById("ultimo").textContent="Último movimiento: --";
+ document.getElementById("analisis").textContent="Esperando datos suficientes para analizar...";
+
  ws=new WebSocket("wss://api.derivws.com/trading/v1/options/ws/public");
+
  ws.onopen=()=>{
-  document.getElementById("status").textContent="Conectado. Solicitando símbolos...";
-  ws.send(JSON.stringify({active_symbols:"full",req_id:1}));
+  document.getElementById("estado").textContent="Conectado. Solicitando BOOM1000...";
+  ws.send(JSON.stringify({ticks:"BOOM1000",subscribe:1,req_id:2}));
  };
+
  ws.onmessage=(event)=>{
-  let d;
-  try{d=JSON.parse(event.data)}catch(e){
-   document.getElementById("debug").textContent=event.data;return;
-  }
-  document.getElementById("debug").textContent=
-    "Respuesta recibida: "+(d.msg_type||"sin tipo")+
-    (d.error?"\nError: "+d.error.message:"");
+  const d=JSON.parse(event.data);
+
   if(d.error){
-   document.getElementById("status").textContent="Error: "+d.error.message;
+   document.getElementById("estado").textContent="Error: "+d.error.message;
    return;
   }
-  if(d.msg_type==="active_symbols"||d.active_symbols){
-   let arr=d.active_symbols||d.data?.active_symbols||[];
-   if(!Array.isArray(arr)){
-    document.getElementById("markets").textContent=
-      "Formato inesperado:\n"+JSON.stringify(arr,null,2);
-    return;
+
+  if(d.msg_type==="tick" && d.tick){
+   const precio=Number(d.tick.quote);
+   total++;
+
+   document.getElementById("precio").textContent=
+    precio.toFixed(d.tick.pip_size ?? 2);
+
+   document.getElementById("hora").textContent=
+    "Hora del tick: "+new Date(d.tick.epoch*1000).toLocaleTimeString();
+
+   document.getElementById("contador").textContent=
+    "Ticks recibidos: "+total;
+
+   if(ultimoPrecio!==null){
+    let movimiento=precio>ultimoPrecio?"Subiendo":
+                   precio<ultimoPrecio?"Bajando":"Sin cambio";
+    document.getElementById("ultimo").textContent=
+     "Último movimiento: "+movimiento;
    }
-   let boom=arr.filter(x=>{
-    let s=[x.display_name,x.underlying_symbol_name,x.name,
-      x.symbol,x.underlying_symbol].join(" ").toLowerCase();
-    return s.includes("boom");
-   });
-   document.getElementById("status").textContent=
-      "Respuesta recibida: "+arr.length+" mercados.";
-   document.getElementById("markets").textContent=boom.length?
-     boom.map(x=>(x.display_name||x.underlying_symbol_name||x.name||"Sin nombre")+
-     "\nCódigo: "+(x.symbol||x.underlying_symbol||"No indicado")).join("\n\n"):
-     "Deriv respondió, pero no aparecen mercados con la palabra Boom.\n"+
-     "Revisa los datos de conexión.";
+   ultimoPrecio=precio;
+
+   if(total>=100){
+    document.getElementById("analisis").textContent=
+     "Datos recibidos. Preparado para construir el análisis M1 y M5.";
+   }
   }
  };
+
  ws.onerror=()=>{
-  document.getElementById("status").textContent="Error de conexión WebSocket.";
+  document.getElementById("estado").textContent="Error de conexión.";
  };
+
  ws.onclose=()=>{
-  document.getElementById("debug").textContent+="\nConexión cerrada.";
+  document.getElementById("estado").textContent="Conexión cerrada.";
  };
 }
-connect();
+
+conectar();
 </script>
 </body>
 </html>
