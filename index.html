@@ -6,12 +6,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BOOM PULSE 1000 CLOUD</title>
 <style>
-body{background:#101722;color:white;font-family:Arial;padding:18px}
+body{background:#101722;color:white;font-family:Arial;padding:16px}
 .panel{max-width:600px;margin:auto}
 .card{background:#1c2939;padding:18px;border-radius:12px;margin:14px 0}
 h1{color:#55d6a3}
 .precio{font-size:36px;color:#55d6a3;font-weight:bold}
 button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8px}
+small{color:#aab8c8}
 </style>
 </head>
 <body>
@@ -20,7 +21,8 @@ button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8
 
 <div class="card">
 <h3>CONEXIÓN DERIV</h3>
-<p id="estado">Conectando...</p>
+<p id="estado">Iniciando...</p>
+<p id="detalle">Preparando conexión</p>
 <button onclick="conectar()">REConectar</button>
 </div>
 
@@ -34,6 +36,7 @@ button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8
 <h3>DATOS DEL MERCADO</h3>
 <p id="contador">Ticks recibidos: 0</p>
 <p id="ultimo">Último movimiento: --</p>
+<p id="simbolo">Símbolo: BOOM1000</p>
 </div>
 
 <div class="card">
@@ -41,7 +44,7 @@ button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8
 <p>Marco principal: M5</p>
 <p>Entrada: M1</p>
 <p>Operaciones permitidas: BUY únicamente</p>
-<p id="analisis">Esperando datos...</p>
+<p id="analisis">Esperando datos suficientes...</p>
 </div>
 </div>
 
@@ -49,73 +52,119 @@ button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8
 let ws=null;
 let total=0;
 let ultimoPrecio=null;
+let heartbeat=null;
+let suscrito=false;
 
 function conectar(){
  if(ws){
   try{ws.close()}catch(e){}
  }
+ if(heartbeat) clearInterval(heartbeat);
+
  total=0;
  ultimoPrecio=null;
+ suscrito=false;
 
- document.getElementById("estado").textContent="Conectando con Deriv...";
+ document.getElementById("estado").textContent="Conectando...";
+ document.getElementById("detalle").textContent="Abriendo conexión pública";
  document.getElementById("precio").textContent="Esperando precio...";
  document.getElementById("contador").textContent="Ticks recibidos: 0";
+ document.getElementById("ultimo").textContent="Último movimiento: --";
+ document.getElementById("analisis").textContent="Esperando datos suficientes...";
 
- ws=new WebSocket("wss://ws.derivws.com/websockets/v3?app_id=1089");
+ ws=new WebSocket(
+  "wss://api.derivws.com/trading/v1/options/ws/public"
+ );
 
  ws.onopen=()=>{
-  document.getElementById("estado").textContent="Conectado. Solicitando BOOM1000...";
+  document.getElementById("estado").textContent="Conexión abierta";
+  document.getElementById("detalle").textContent="Buscando BOOM1000...";
   ws.send(JSON.stringify({
-   ticks:"BOOM1000",
-   subscribe:1
+   active_symbols:"full",
+   req_id:1
   }));
+
+  heartbeat=setInterval(()=>{
+   if(ws && ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({ping:1}));
+   }
+  },30000);
  };
 
  ws.onmessage=(event)=>{
-  const d=JSON.parse(event.data);
+  let d;
+  try{d=JSON.parse(event.data)}catch(e){return;}
 
   if(d.error){
-   document.getElementById("estado").textContent="Error: "+d.error.message;
+   document.getElementById("estado").textContent="Error de Deriv";
+   document.getElementById("detalle").textContent=d.error.message;
    return;
   }
 
+  if(d.msg_type==="active_symbols" && !suscrito){
+   const lista=d.active_symbols || d.data?.active_symbols || [];
+   const encontrado=lista.find(x=>
+    x.symbol==="BOOM1000" ||
+    x.underlying_symbol==="BOOM1000"
+   );
+
+   if(encontrado){
+    suscrito=true;
+    document.getElementById("detalle").textContent=
+     "Mercado encontrado. Solicitando cotizaciones...";
+    ws.send(JSON.stringify({
+     ticks:"BOOM1000",
+     subscribe:1,
+     req_id:2
+    }));
+   }else{
+    document.getElementById("detalle").textContent=
+     "No se encontró BOOM1000 en la respuesta.";
+   }
+  }
+
   if(d.msg_type==="tick" && d.tick){
-   const precio=Number(d.tick.quote);
+   const p=Number(d.tick.quote);
    total++;
 
    document.getElementById("estado").textContent="Conectado a Deriv";
+   document.getElementById("detalle").textContent="Recibiendo cotizaciones";
    document.getElementById("precio").textContent=
-    precio.toFixed(d.tick.pip_size ?? 2);
-
+    p.toFixed(d.tick.pip_size ?? 2);
    document.getElementById("hora").textContent=
-    "Última actualización: "+new Date(d.tick.epoch*1000).toLocaleTimeString();
-
+    "Último tick: "+new Date(d.tick.epoch*1000).toLocaleTimeString();
    document.getElementById("contador").textContent=
     "Ticks recibidos: "+total;
 
    if(ultimoPrecio!==null){
-    let movimiento=precio>ultimoPrecio?"Subiendo":
-     precio<ultimoPrecio?"Bajando":"Sin cambio";
-
+    let m=p>ultimoPrecio?"Subiendo":
+          p<ultimoPrecio?"Bajando":"Sin cambio";
     document.getElementById("ultimo").textContent=
-     "Último movimiento: "+movimiento;
+     "Último movimiento: "+m;
    }
 
-   ultimoPrecio=precio;
+   ultimoPrecio=p;
 
    if(total>=100){
     document.getElementById("analisis").textContent=
-     "Datos recibidos. Preparado para análisis M1 y M5.";
+     "Cotizaciones recibidas. Datos preparados para análisis M1 y M5.";
    }
   }
  };
 
  ws.onerror=()=>{
-  document.getElementById("estado").textContent="Error de conexión.";
+  document.getElementById("estado").textContent="Error de conexión";
+  document.getElementById("detalle").textContent=
+   "El navegador reportó un error WebSocket.";
  };
 
- ws.onclose=()=>{
-  document.getElementById("estado").textContent="Conexión cerrada.";
+ ws.onclose=(event)=>{
+  if(heartbeat) clearInterval(heartbeat);
+  document.getElementById("estado").textContent="Conexión cerrada";
+  document.getElementById("detalle").textContent=
+   "Código: "+event.code+
+   " | Motivo: "+(event.reason || "Sin motivo informado")+
+   " | Cierre limpio: "+event.wasClean;
  };
 }
 
