@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -5,108 +6,108 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BOOM PULSE 1000 CLOUD</title>
 <style>
-body{margin:0;background:#101722;color:white;font-family:Arial;padding:20px}
-.card{background:#1c2938;padding:20px;border-radius:14px;margin:14px 0}
-h1{color:#55d6a3;font-size:23px}
-.price{font-size:36px;font-weight:bold;margin:15px 0}
-.status{color:#ffc857}
-button{background:#20b982;color:#071b15;border:0;padding:13px;border-radius:9px;font-weight:bold}
-small{color:#aab7c5}
+body{margin:0;background:#10151f;color:#fff;font-family:Arial;padding:20px}
+h1{color:#42d392}
+.panel{background:#1c2635;padding:18px;border-radius:12px;margin:14px 0}
+.price{font-size:32px;color:#42d392;font-weight:bold}
+button{background:#42d392;color:#10151f;border:0;padding:13px 20px;border-radius:8px;font-weight:bold}
+.small{color:#aab6c5}
 </style>
 </head>
 <body>
 <h1>BOOM PULSE 1000 CLOUD</h1>
-<div class="card">
-  <div>CONEXIÓN DERIV</div>
-  <p id="status" class="status">Conectando...</p>
-  <small id="symbol">Buscando Boom 1000...</small>
-  <div id="price" class="price">---</div>
-  <small id="time">Esperando cotización</small>
-</div>
-<div class="card">
-  <h3>ANÁLISIS DEL MERCADO</h3>
-  <p>Marco principal: M5</p>
-  <p>Entrada: M1</p>
-  <p>Operaciones permitidas: BUY</p>
-  <p id="analysis">Esperando datos...</p>
-</div>
-<div class="card">
-  <h3>SEÑALES</h3>
-  <p id="signal">Sin señales todavía.</p>
-  <small>Esta versión todavía no genera entradas.</small>
-</div>
+<div class="panel">
+<h3>CONEXIÓN DERIV</h3>
+<p id="status">Conectando...</p>
+<p id="market">Buscando Boom 1000...</p>
+<div class="price" id="price">Esperando cotización</div>
+<p class="small" id="symbol"></p>
 <button onclick="connect()">Reconectar</button>
+</div>
+<div class="panel">
+<h3>ANÁLISIS DEL MERCADO</h3>
+<p>Marco principal: M5</p>
+<p>Entrada: M1</p>
+<p>Operaciones permitidas: BUY</p>
+<p id="analysis">Esperando datos...</p>
+</div>
+<div class="panel">
+<h3>SEÑALES</h3>
+<p>Sin señales todavía.</p>
+<p class="small">Esta versión solo verifica la conexión y las cotizaciones.</p>
+</div>
 <script>
-let ws;
-let symbol=null;
-
-function status(t){
- document.getElementById("status").textContent=t;
-}
+let ws=null;
+let selectedSymbol=null;
 
 function connect(){
  if(ws) ws.close();
- status("Conectando con Deriv...");
- document.getElementById("price").textContent="---";
+ selectedSymbol=null;
+ document.getElementById("status").textContent="Conectando con Deriv...";
+ document.getElementById("market").textContent="Buscando Boom 1000...";
+ document.getElementById("price").textContent="Esperando cotización";
+ document.getElementById("symbol").textContent="";
+ document.getElementById("analysis").textContent="Esperando datos...";
+
  ws=new WebSocket("wss://api.derivws.com/trading/v1/options/ws/public");
 
  ws.onopen=()=>{
-  status("Conectado. Buscando mercados...");
-  ws.send(JSON.stringify({
-   active_symbols:"brief",
-   req_id:1
-  }));
+  document.getElementById("status").textContent="Conectado. Consultando mercados...";
+  ws.send(JSON.stringify({active_symbols:"full",req_id:1}));
  };
 
  ws.onmessage=(event)=>{
-  const d=JSON.parse(event.data);
+  const data=JSON.parse(event.data);
 
-  if(d.error){
-   status("Error: "+d.error.message);
+  if(data.error){
+   document.getElementById("status").textContent="Error Deriv: "+data.error.message;
    return;
   }
 
-  if(d.msg_type==="active_symbols"){
-   const markets=d.active_symbols||[];
-   const found=markets.find(x=>
-    /boom\s*1000/i.test(x.display_name||"")
-   );
+  if(data.msg_type==="active_symbols" || data.active_symbols){
+   const markets=data.active_symbols || data.data?.active_symbols || [];
+   const boom=markets.filter(m=>{
+    const name=String(m.display_name||m.underlying_symbol_name||m.name||"").toLowerCase();
+    const symbol=String(m.symbol||m.underlying_symbol||"").toLowerCase();
+    return (name.includes("boom") && name.includes("1000")) ||
+           symbol==="boom1000";
+   });
 
-   if(!found){
-    status("No se encontró Boom 1000");
-    document.getElementById("symbol").textContent=
-      "Revisar mercados disponibles";
+   if(boom.length===0){
+    const available=markets
+     .filter(m=>String(m.display_name||m.name||m.underlying_symbol_name||"").toLowerCase().includes("boom"))
+     .map(m=>(m.display_name||m.name||m.underlying_symbol_name)+" ("+(m.symbol||m.underlying_symbol)+")")
+     .join(", ");
+
+    document.getElementById("status").textContent="Conectado, pero no se identificó Boom 1000.";
+    document.getElementById("market").textContent=available || "Deriv no devolvió mercados Boom.";
     return;
    }
 
-   symbol=found.symbol;
-   document.getElementById("symbol").textContent=
-     (found.display_name||symbol)+" ("+symbol+")";
+   selectedSymbol=boom[0].symbol||boom[0].underlying_symbol;
 
-   ws.send(JSON.stringify({
-    ticks:symbol,
-    subscribe:1,
-    req_id:2
-   }));
+   document.getElementById("market").textContent="Boom 1000 encontrado";
+   document.getElementById("symbol").textContent="Símbolo: "+selectedSymbol;
+   document.getElementById("status").textContent="Mercado identificado. Esperando precio...";
+
+   ws.send(JSON.stringify({ticks:selectedSymbol,subscribe:1,req_id:2}));
   }
 
-  if(d.msg_type==="tick"){
-   const t=d.tick;
-   document.getElementById("price").textContent=t.quote;
-   document.getElementById("time").textContent=
-     new Date(t.epoch*1000).toLocaleTimeString();
-   status("Recibiendo precios en vivo");
-   document.getElementById("analysis").textContent=
-     "Datos recibidos. Análisis técnico pendiente.";
+  if(data.msg_type==="tick" && data.tick){
+   document.getElementById("price").textContent=Number(data.tick.quote).toFixed(data.tick.pip_size||2);
+   document.getElementById("status").textContent="Conectado y recibiendo cotizaciones en vivo.";
+   document.getElementById("analysis").textContent="Datos recibidos. Análisis todavía no activado.";
   }
  };
 
  ws.onerror=()=>{
-  status("Error de conexión");
+  document.getElementById("status").textContent="Error de conexión. Intenta reconectar.";
  };
 
  ws.onclose=()=>{
-  status("Conexión cerrada");
+  if(document.getElementById("status").textContent.includes("Conectado")===false){
+   document.getElementById("status").textContent="Conexión cerrada.";
+  }
  };
 }
 
@@ -114,3 +115,4 @@ connect();
 </script>
 </body>
 </html>
+
