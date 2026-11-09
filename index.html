@@ -1,67 +1,74 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BOOM PULSE 1000 CLOUD</title>
 <style>
-body{margin:0;background:#101722;color:#fff;font-family:Arial;padding:20px}
+body{background:#101722;color:white;font-family:Arial;padding:18px}
 .panel{max-width:600px;margin:auto}
 .card{background:#1c2939;padding:18px;border-radius:12px;margin:14px 0}
-h1{color:#55d6a3;font-size:25px}
-.estado{color:#55d6a3}
-.precio{font-size:36px;font-weight:bold;color:#55d6a3}
-button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8px;font-size:16px}
-small{color:#aab8c8}
+h1{color:#55d6a3}
+.precio{font-size:36px;color:#55d6a3;font-weight:bold}
+button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8px}
 </style>
 </head>
 <body>
 <div class="panel">
 <h1>BOOM PULSE 1000 CLOUD</h1>
+
 <div class="card">
 <h3>CONEXIÓN DERIV</h3>
 <p id="estado">Conectando...</p>
-<button onclick="conectar()">Reconectar</button>
+<button onclick="conectar()">REConectar</button>
 </div>
+
 <div class="card">
 <h3>BOOM 1000 INDEX</h3>
 <div class="precio" id="precio">Esperando precio...</div>
 <p id="hora">Esperando cotización</p>
-<p><small>Símbolo: BOOM1000</small></p>
 </div>
+
 <div class="card">
 <h3>DATOS DEL MERCADO</h3>
 <p id="contador">Ticks recibidos: 0</p>
 <p id="ultimo">Último movimiento: --</p>
 </div>
+
 <div class="card">
 <h3>ANÁLISIS</h3>
 <p>Marco principal: M5</p>
 <p>Entrada: M1</p>
 <p>Operaciones permitidas: BUY únicamente</p>
-<p id="analisis">Esperando datos suficientes para analizar...</p>
+<p id="analisis">Esperando datos...</p>
 </div>
 </div>
+
 <script>
 let ws=null;
 let total=0;
 let ultimoPrecio=null;
 
 function conectar(){
- if(ws){try{ws.close()}catch(e){}}
+ if(ws){
+  try{ws.close()}catch(e){}
+ }
  total=0;
  ultimoPrecio=null;
+
  document.getElementById("estado").textContent="Conectando con Deriv...";
  document.getElementById("precio").textContent="Esperando precio...";
  document.getElementById("contador").textContent="Ticks recibidos: 0";
- document.getElementById("ultimo").textContent="Último movimiento: --";
- document.getElementById("analisis").textContent="Esperando datos suficientes para analizar...";
 
- ws=new WebSocket("wss://api.derivws.com/trading/v1/options/ws/public");
+ ws=new WebSocket("wss://ws.derivws.com/websockets/v3?app_id=1089");
 
  ws.onopen=()=>{
   document.getElementById("estado").textContent="Conectado. Solicitando BOOM1000...";
-  ws.send(JSON.stringify({ticks:"BOOM1000",subscribe:1,req_id:2}));
+  ws.send(JSON.stringify({
+   ticks:"BOOM1000",
+   subscribe:1
+  }));
  };
 
  ws.onmessage=(event)=>{
@@ -76,26 +83,29 @@ function conectar(){
    const precio=Number(d.tick.quote);
    total++;
 
+   document.getElementById("estado").textContent="Conectado a Deriv";
    document.getElementById("precio").textContent=
     precio.toFixed(d.tick.pip_size ?? 2);
 
    document.getElementById("hora").textContent=
-    "Hora del tick: "+new Date(d.tick.epoch*1000).toLocaleTimeString();
+    "Última actualización: "+new Date(d.tick.epoch*1000).toLocaleTimeString();
 
    document.getElementById("contador").textContent=
     "Ticks recibidos: "+total;
 
    if(ultimoPrecio!==null){
     let movimiento=precio>ultimoPrecio?"Subiendo":
-                   precio<ultimoPrecio?"Bajando":"Sin cambio";
+     precio<ultimoPrecio?"Bajando":"Sin cambio";
+
     document.getElementById("ultimo").textContent=
      "Último movimiento: "+movimiento;
    }
+
    ultimoPrecio=precio;
 
    if(total>=100){
     document.getElementById("analisis").textContent=
-     "Datos recibidos. Preparado para construir el análisis M1 y M5.";
+     "Datos recibidos. Preparado para análisis M1 y M5.";
    }
   }
  };
@@ -113,5 +123,6 @@ conectar();
 </script>
 </body>
 </html>
+
 
 
