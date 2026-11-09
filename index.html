@@ -1,537 +1,295 @@
 
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PULSE PRO CLOUD V2</title>
 <style>
-body{background:#101722;color:white;font-family:Arial;padding:14px}
-.panel{max-width:650px;margin:auto}
-.card{background:#1c2939;padding:16px;border-radius:12px;margin:13px 0}
-h1{color:#55d6a3}
-.price{font-size:32px;color:#55d6a3;font-weight:bold}
-.good{color:#55d6a3}.wait{color:#ffc45c}.bad{color:#ff7777}
-button,select{background:#168b68;color:white;border:0;padding:13px;border-radius:8px;margin:5px}
-select{width:100%;background:#263b50;font-size:16px}
-p{line-height:1.5}
-.small{font-size:12px;color:#aab8c8;overflow-wrap:anywhere}
+:root{
+--bg:#05080c;--panel:#0b1118;--line:#263746;
+--cyan:#00c8ff;--green:#19ed38;--red:#ff343d;
+--yellow:#ffe500;--blue:#168cff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#020406;color:#f5f8fb;font-family:Arial,sans-serif}
+header{
+display:flex;align-items:center;justify-content:space-between;
+gap:14px;padding:14px 18px;border-bottom:1px solid #17415a;
+background:#03070b;flex-wrap:wrap
+}
+.brand{font-size:30px;font-weight:900;font-style:italic}
+.brand span{color:#19baff}
+.tag{color:#9aabb9;font-size:12px;margin-top:4px}
+.status{color:var(--red);font-weight:bold}
+.markets{display:flex;gap:22px;color:var(--cyan);font-weight:bold;text-align:center}
+main{padding:12px;display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:12px}
+.panel{
+background:linear-gradient(145deg,#0c131b,#070b10);
+border:1px solid #304454;border-radius:12px;padding:12px
+}
+.chart-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:13px}
+.legend span{margin-right:10px}
+.yellow{color:var(--yellow)}.blue{color:var(--blue)}
+.green{color:var(--green)}.red{color:var(--red)}
+canvas{width:100%;height:440px;display:block;background:#05090e;border-radius:6px}
+.side{display:flex;flex-direction:column;gap:12px}
+.section-title{color:var(--cyan);font-weight:900;text-align:center;margin-bottom:10px}
+.signal{text-align:center;font-size:30px;font-weight:900;margin:8px}
+.confidence{color:var(--green);font-weight:bold;text-align:center;margin-bottom:12px}
+.levels{display:grid;grid-template-columns:1fr auto;gap:9px;font-weight:bold}
+.levels div:nth-child(odd){color:#c4d0db}
+.stats{display:grid;grid-template-columns:1fr auto;gap:8px}
+.market-row{padding:8px 0;border-top:1px solid #263746}
+.market-row strong{display:block;margin-top:4px;font-size:20px}
+.bottom{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.bottom .panel{text-align:center;font-weight:bold}
+.big{font-size:20px;color:var(--green);margin-top:5px}
+.note{color:#8998a6;font-size:11px;text-align:center;margin:10px}
+@media(max-width:850px){
+main{grid-template-columns:1fr}
+.side{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.bottom{grid-template-columns:repeat(2,1fr)}
+canvas{height:340px}
+}
+@media(max-width:520px){
+header{align-items:flex-start}
+.markets{width:100%;justify-content:space-around}
+.side{grid-template-columns:1fr}
+.bottom{grid-template-columns:1fr}
+canvas{height:290px}
+}
 </style>
 </head>
 <body>
+
+<header>
+<div>
+<div class="brand">↗ PULSE PRO <span>CLOUD V2</span></div>
+<div class="tag">ANALIZA · DETECTA · ALERTA</div>
+</div>
+
+<div>● CONEXIÓN DERIV:
+<span class="status">PENDIENTE</span></div>
+
+<div class="markets">
+<div>BOOM 1000<br><small>SOLO BUY</small></div>
+<div>STEP INDEX<br><small>BUY / SELL</small></div>
+</div>
+
+<div style="color:#9eb0bf">MODO DISEÑO · V2</div>
+</header>
+
+<main>
+
+<section class="panel">
+<div class="chart-head">
+<div>GRÁFICO M1 · VISTA PREVIA</div>
+<div class="legend">
+<span class="yellow">━ EMA 20</span>
+<span class="blue">━ EMA 50</span>
+<span class="green">━ SOPORTE</span>
+<span class="red">━ RESISTENCIA</span>
+</div>
+</div>
+
+<canvas id="chart"></canvas>
+<div class="note">
+VISTA DE DISEÑO: velas y niveles ilustrativos.
+Todavía no son cotizaciones reales de Deriv.
+</div>
+</section>
+
+<aside class="side">
+
+<section class="panel">
+<div class="section-title">SEÑAL ACTUAL</div>
+<div class="signal">ESPERANDO</div>
+<div class="confidence">Sin señal confirmada</div>
+<div class="levels">
+<div>Entrada</div><div>—</div>
+<div>SL</div><div>—</div>
+<div>TP1</div><div>—</div>
+<div>TP2</div><div>—</div>
+<div>TP3</div><div>—</div>
+</div>
+</section>
+
+<section class="panel">
+<div class="section-title">ESTADÍSTICAS</div>
+<div class="stats">
+<span>Acierto</span><b>—</b>
+<span>Señales</span><b>0</b>
+<span>Ganadas</span><b>0</b>
+<span>Perdidas</span><b>0</b>
+</div>
+</section>
+
+<section class="panel">
+<div class="section-title">MERCADOS</div>
+<div class="market-row">
+BOOM 1000 <span class="red">● Desconectado</span>
+<strong>—</strong><small>Solo BUY</small>
+</div>
+<div class="market-row">
+STEP INDEX <span class="red">● Desconectado</span>
+<strong>—</strong><small>BUY / SELL</small>
+</div>
+</section>
+
+</aside>
+
+<section class="bottom">
+<div class="panel">RIESGO POR OPERACIÓN
+<div class="big">1%</div>
+</div>
+<div class="panel">ALERTAS
+<div class="big">PREPARADAS</div>
+</div>
 <div class="panel">
-
-<h1>PULSE PRO CLOUD V2</h1>
-
-<div class="card">
-<h3>SELECCIONAR MERCADO</h3>
-<select id="mercado" onchange="cambiarMercado()">
-<option value="BOOM1000">BOOM 1000 - BUY</option>
-<option value="STEP">STEP INDEX - BUY / SELL</option>
-</select>
-<p id="tipo">Solo BUY</p>
+<span style="color:var(--yellow)">OPERA CON DISCIPLINA</span>
+<div class="tag">Tu éxito es nuestro objetivo</div>
 </div>
-
-<div class="card">
-<h3>CONEXIÓN DERIV</h3>
-<p id="estado">Conectando...</p>
-<p id="detalle">Buscando mercados...</p>
-<button onclick="conectar()">RECONECTAR</button>
-<button onclick="activarAlertas()">ACTIVAR ALERTAS</button>
+<div class="panel">EJECUCIÓN
+<div class="big">MANUAL</div>
 </div>
+</section>
 
-<div class="card">
-<h3 id="nombre">BOOM 1000 INDEX</h3>
-<div class="price" id="precio">Esperando...</div>
-<p id="ticks">Ticks: 0</p>
-</div>
-
-<div class="card">
-<h3>FILTROS</h3>
-<p id="tendencia">Tendencia M5: --</p>
-<p id="ema">EMA 20 / EMA 50: --</p>
-<p id="rsi">RSI 14: --</p>
-<p id="atr">ATR 14: --</p>
-<p id="impulso">Impulso M1: --</p>
-</div>
-
-<div class="card">
-<h2 id="senal" class="wait">ESPERANDO SEÑAL</h2>
-<p id="motivo">Analizando...</p>
-<p id="entrada">Entrada: --</p>
-<p id="sl">Stop Loss: --</p>
-<p id="tp1">TP1: --</p>
-<p id="tp2">TP2: --</p>
-<p id="tp3">TP3: --</p>
-</div>
-
-<div class="card">
-<h3>HISTORIAL</h3>
-<p id="m1">M1: --</p>
-<p id="m5">M5: --</p>
-</div>
-
-<div class="card">
-<h3>CONFIGURACIÓN</h3>
-<p>BOOM 1000: BUY únicamente</p>
-<p>STEP INDEX: BUY y SELL</p>
-<p>Entrada: M1 | Tendencia: M5</p>
-<p>Riesgo objetivo: 1%</p>
-<p>Trading manual, sin ejecución automática.</p>
-<p class="small">Señales experimentales. No garantizan resultados.</p>
-</div>
-
-</div>
+</main>
 
 <script>
-let ws=null;
-let m1=[];
-let ticks=0;
-let pip=3;
-let mercado="BOOM1000";
-let simbolos={};
-let ultimaSenal=null;
-let alertas=false;
-let suscripcion=null;
+const canvas=document.getElementById('chart');
+const ctx=canvas.getContext('2d');
 
-const $=id=>document.getElementById(id);
+function draw(){
+const dpr=window.devicePixelRatio||1;
+const w=canvas.clientWidth;
+const h=canvas.clientHeight;
 
-function precio(n){
- return Number(n).toFixed(pip);
+canvas.width=w*dpr;
+canvas.height=h*dpr;
+ctx.setTransform(dpr,0,0,dpr,0,0);
+
+ctx.fillStyle='#05090e';
+ctx.fillRect(0,0,w,h);
+
+const left=12,right=65,top=18,bottom=28;
+const cw=w-left-right;
+const ch=h-top-bottom;
+
+ctx.strokeStyle='#1c2a36';
+ctx.lineWidth=1;
+
+for(let i=0;i<=6;i++){
+let y=top+ch*i/6;
+ctx.beginPath();
+ctx.moveTo(left,y);
+ctx.lineTo(w-right,y);
+ctx.stroke();
 }
 
-function ema(d,p){
- if(d.length<p)return null;
- let k=2/(p+1),v=d[0];
- for(let i=1;i<d.length;i++)
-  v=d[i]*k+v*(1-k);
- return v;
+for(let i=0;i<=7;i++){
+let x=left+cw*i/7;
+ctx.beginPath();
+ctx.moveTo(x,top);
+ctx.lineTo(x,h-bottom);
+ctx.stroke();
 }
 
-function rsi(d,p=14){
- if(d.length<=p)return null;
- let g=0,b=0;
- for(let i=d.length-p;i<d.length;i++){
-  let c=d[i]-d[i-1];
-  if(c>0)g+=c;
-  else b-=c;
- }
- if(b===0)return 100;
- let rs=g/b;
- return 100-100/(1+rs);
+let vals=[],p=.52;
+
+for(let i=0;i<64;i++){
+p+=(Math.random()-.47)*.095;
+p=Math.max(.16,Math.min(.85,p));
+vals.push(p);
 }
 
-function atr(d,p=14){
- if(d.length<p+1)return null;
- let tr=[];
- for(let i=1;i<d.length;i++){
-  let c=d[i],a=d[i-1];
-  tr.push(Math.max(
-   c.high-c.low,
-   Math.abs(c.high-a.close),
-   Math.abs(c.low-a.close)
-  ));
- }
- return tr.slice(-p).reduce((x,y)=>x+y,0)/p;
+const y=v=>top+ch*(1-v);
+const step=cw/vals.length;
+
+ctx.setLineDash([7,5]);
+
+ctx.strokeStyle='#16e83a';
+ctx.beginPath();
+ctx.moveTo(left,y(.28));
+ctx.lineTo(w-right,y(.28));
+ctx.stroke();
+
+ctx.strokeStyle='#ff343d';
+ctx.beginPath();
+ctx.moveTo(left,y(.82));
+ctx.lineTo(w-right,y(.82));
+ctx.stroke();
+
+ctx.setLineDash([]);
+
+ctx.font='11px Arial';
+ctx.fillStyle='#19ed38';
+ctx.fillText('SOPORTE',left+6,y(.28)-6);
+ctx.fillStyle='#ff4b52';
+ctx.fillText('RESISTENCIA',left+6,y(.82)-6);
+
+vals.forEach((v,i)=>{
+let prev=i?vals[i-1]:v-.02;
+let open=y(prev),close=y(v);
+let x=left+i*step+step*.22;
+let bodyW=Math.max(3,step*.55);
+let hi=Math.min(open,close)-Math.random()*ch*.045;
+let lo=Math.max(open,close)+Math.random()*ch*.045;
+let up=v>=prev;
+
+ctx.strokeStyle=up?'#fff':'#ff343d';
+ctx.fillStyle=up?'#fff':'#ff343d';
+
+ctx.beginPath();
+ctx.moveTo(x+bodyW/2,hi);
+ctx.lineTo(x+bodyW/2,lo);
+ctx.stroke();
+
+ctx.fillRect(
+x,
+Math.min(open,close),
+bodyW,
+Math.max(2,Math.abs(close-open))
+);
+});
+
+function line(color,offset){
+ctx.beginPath();
+ctx.strokeStyle=color;
+ctx.lineWidth=2;
+
+for(let i=0;i<vals.length;i++){
+let avg=vals.slice(Math.max(0,i-offset+1),i+1)
+.reduce((a,b)=>a+b,0)/Math.min(i+1,offset);
+
+let x=left+i*step+step/2;
+
+if(i===0)ctx.moveTo(x,y(avg));
+else ctx.lineTo(x,y(avg));
+}
+ctx.stroke();
 }
 
-function agruparM5(d){
- let mapa=new Map();
- for(let v of d){
-  let t=Math.floor(v.time/300)*300;
-  let c=mapa.get(t);
-  if(!c){
-   mapa.set(t,{
-    time:t,open:v.open,
-    high:v.high,low:v.low,close:v.close
-   });
-  }else{
-   c.high=Math.max(c.high,v.high);
-   c.low=Math.min(c.low,v.low);
-   c.close=v.close;
-  }
- }
- return [...mapa.values()].sort((a,b)=>a.time-b.time);
+line('#ffe500',8);
+line('#168cff',20);
+
+ctx.fillStyle='#aab7c4';
+ctx.font='11px Arial';
+
+['19:00','19:10','19:20','19:30',
+'19:40','19:50','20:00'].forEach((t,i)=>{
+ctx.fillText(t,left+i*cw/6-10,h-8);
+});
 }
 
-function limpiar(){
- $("senal").textContent="ESPERANDO SEÑAL";
- $("senal").className="wait";
- $("entrada").textContent="Entrada: --";
- $("sl").textContent="Stop Loss: --";
- $("tp1").textContent="TP1: --";
- $("tp2").textContent="TP2: --";
- $("tp3").textContent="TP3: --";
- $("motivo").textContent="Analizando...";
-}
-
-function notificar(titulo,mensaje){
- if(alertas && Notification.permission==="granted"){
-  new Notification(titulo,{body:mensaje});
- }
-}
-
-async function activarAlertas(){
- if(!("Notification" in window)){
-  alert("Tu navegador no admite notificaciones.");
-  return;
- }
- let p=await Notification.requestPermission();
- alertas=p==="granted";
- alert(alertas?"Alertas activadas":"Permiso no concedido.");
-}
-
-function evaluar(ahora){
- let m5=agruparM5(m1);
- let limite=Math.floor(ahora/300)*300;
- let cerradas5=m5.filter(v=>v.time+300<=limite);
-
- if(m1.length<16 || cerradas5.length<51){
-  $("senal").textContent="CARGANDO HISTORIAL";
-  $("motivo").textContent="Esperando velas suficientes.";
-  return;
- }
-
- let e20=ema(cerradas5.map(v=>v.close),20);
- let e50=ema(cerradas5.map(v=>v.close),50);
- let ultimo5=cerradas5[cerradas5.length-1];
-
- let minuto=Math.floor(ahora/60)*60;
- let d=m1.filter(v=>v.time<minuto);
-
- if(d.length<16)return;
-
- let actual=d[d.length-1];
- let anterior=d[d.length-2];
-
- let r=rsi(d.map(v=>v.close));
- let a=atr(d);
-
- if(r===null || !a || !e20 || !e50)return;
-
- let cuerpo=actual.close-actual.open;
- let rango=actual.high-actual.low;
-
- let alcista=rango>0 &&
-  (actual.high-actual.close)/rango<=0.25;
-
- let bajista=rango>0 &&
-  (actual.close-actual.low)/rango<=0.25;
-
- let tendenciaBuy=e20>e50 && ultimo5.close>e20;
- let tendenciaSell=e20<e50 && ultimo5.close<e20;
-
- let buy=false,sell=false;
-
- if(mercado==="BOOM1000"){
-  buy=tendenciaBuy &&
-   r>=53 && r<=68 &&
-   cuerpo>=1.25*a &&
-   alcista &&
-   actual.close>anterior.high;
- }else{
-  buy=tendenciaBuy &&
-   r>=52 && r<=68 &&
-   cuerpo>=1.10*a &&
-   alcista &&
-   actual.close>anterior.high;
-
-  sell=tendenciaSell &&
-   r>=32 && r<=48 &&
-   cuerpo<=-1.10*a &&
-   bajista &&
-   actual.close<anterior.low;
- }
-
- $("tendencia").textContent=
-  "BUY: "+(tendenciaBuy?"ALCISTA":"NO")+
-  " | SELL: "+(tendenciaSell?"BAJISTA":"NO");
-
- $("ema").textContent=
-  "EMA20: "+precio(e20)+" | EMA50: "+precio(e50);
-
- $("rsi").textContent="RSI 14: "+r.toFixed(2);
- $("atr").textContent="ATR 14: "+precio(a);
- $("impulso").textContent="Cuerpo M1: "+precio(cuerpo);
-
- let direccion=buy?"BUY":sell?"SELL":null;
-
- if(!direccion){
-  limpiar();
-  $("senal").textContent="SIN SEÑAL";
-  $("motivo").textContent="Filtros todavía no coinciden.";
-  return;
- }
-
- let clave=mercado+"-"+direccion+"-"+actual.time;
-
- if(clave===ultimaSenal)return;
- ultimaSenal=clave;
-
- let entrada=actual.close;
- let sl=entrada+(direccion==="BUY"?-1:1)*1.2*a;
- let t1=entrada+(direccion==="BUY"?1:-1)*a;
- let t2=entrada+(direccion==="BUY"?1:-1)*1.8*a;
- let t3=entrada+(direccion==="BUY"?1:-1)*2.5*a;
-
- $("senal").textContent="SEÑAL "+direccion+" CONFIRMADA";
- $("senal").className="good";
- $("motivo").textContent="Filtros confirmados al cierre M1.";
- $("entrada").textContent="Entrada: "+precio(entrada);
- $("sl").textContent="Stop Loss: "+precio(sl);
- $("tp1").textContent="TP1: "+precio(t1);
- $("tp2").textContent="TP2: "+precio(t2);
- $("tp3").textContent="TP3: "+precio(t3);
-
- notificar(
-  mercado+" "+direccion,
-  "Entrada "+precio(entrada)+" | SL "+precio(sl)
- );
-}
-
-function actualizarVela(v){
- let t=Math.floor(v.time/60)*60;
- let u=m1[m1.length-1];
-
- if(!u || t>u.time){
-  if(u)evaluar(v.time);
-
-  m1.push({
-   time:t,open:v.price,
-   high:v.price,low:v.price,close:v.price
-  });
- }else if(t===u.time){
-  u.high=Math.max(u.high,v.price);
-  u.low=Math.min(u.low,v.price);
-  u.close=v.price;
- }
-
- if(m1.length>1100)m1=m1.slice(-1100);
-
- $("m1").textContent="M1: "+m1.length+" velas";
- $("m5").textContent="M5: "+agruparM5(m1).length+" velas";
-}
-
-function cambiarMercado(){
- mercado=$("mercado").value;
-
- $("tipo").textContent=mercado==="BOOM1000"
-  ?"Estrategia: BUY únicamente"
-  :"Estrategia: BUY y SELL";
-
- $("nombre").textContent=mercado==="BOOM1000"
-  ?"BOOM 1000 INDEX"
-  :"STEP INDEX";
-
- conectar();
-}
-
-/* DETECCIÓN DE SÍMBOLOS DERIV */
-
-function nombreSimbolo(x){
- return String(
-  x.underlying_symbol_name||
-  x.display_name||
-  x.market_display_name||
-  x.name||
-  ""
- ).toLowerCase().trim();
-}
-
-function codigoSimbolo(x){
- return String(
-  x.underlying_symbol||
-  x.symbol||
-  ""
- ).trim();
-}
-
-function buscarSimbolos(respuesta){
- let lista=respuesta.active_symbols||
-  respuesta.data?.active_symbols||
-  respuesta.data||
-  [];
-
- if(!Array.isArray(lista)){
-  lista=[];
- }
-
- let boom=lista.find(x=>
-  /boom\s*1000/i.test(nombreSimbolo(x)) ||
-  /^BOOM1000$/i.test(codigoSimbolo(x))
- );
-
- let step=lista.find(x=>
-  nombreSimbolo(x)==="step index" ||
-  nombreSimbolo(x).includes("step index") ||
-  /^stprng$/i.test(codigoSimbolo(x)) ||
-  /^stepindex$/i.test(codigoSimbolo(x))
- );
-
- simbolos.BOOM1000=boom||null;
- simbolos.STEP=step||null;
-
- let info=simbolos[mercado];
-
- if(!info || !codigoSimbolo(info)){
-  $("estado").textContent="Símbolo no encontrado";
-
-  let encontrados=lista.filter(x=>
-   /step|stp|boom/i.test(
-    nombreSimbolo(x)+" "+codigoSimbolo(x)
-   )
-  );
-
-  $("detalle").textContent=encontrados.length?
-   "Mercados similares: "+
-   encontrados.map(x=>
-    (nombreSimbolo(x)||"Sin nombre")+
-    " ("+codigoSimbolo(x)+")"
-   ).join(" | "):
-   "Deriv devolvió "+lista.length+
-   " símbolos. No se encontró el mercado solicitado.";
-
-  return;
- }
-
- $("estado").textContent="Símbolo encontrado";
- iniciar(codigoSimbolo(info),info);
-}
-
-function iniciar(symbol,info){
- m1=[];
- ticks=0;
- ultimaSenal=null;
- pip=Number(info.pip_size??info.pip)||3;
-
- limpiar();
-
- $("precio").textContent="Esperando...";
- $("ticks").textContent="Ticks: 0";
- $("detalle").textContent="Cargando "+symbol+"...";
-
- ws.send(JSON.stringify({
-  ticks_history:symbol,
-  count:500,
-  end:"latest",
-  style:"candles",
-  granularity:60,
-  req_id:10
- }));
-
- ws.send(JSON.stringify({
-  ticks:symbol,
-  subscribe:1,
-  req_id:11
- }));
-}
-
-function conectar(){
- if(ws){
-  try{ws.close()}catch(e){}
- }
-
- m1=[];
- ticks=0;
- simbolos={};
- suscripcion=null;
- ultimaSenal=null;
-
- limpiar();
-
- $("estado").textContent="Conectando...";
- $("detalle").textContent="Buscando símbolos activos de Deriv...";
-
- ws=new WebSocket(
-  "wss://api.derivws.com/trading/v1/options/ws/public"
- );
-
- ws.onopen=()=>{
-  $("estado").textContent="Conectado a Deriv";
-
-  ws.send(JSON.stringify({
-   active_symbols:"full",
-   req_id:1
-  }));
- };
-
- ws.onmessage=(event)=>{
-  let d;
-
-  try{
-   d=JSON.parse(event.data);
-  }catch(e){
-   return;
-  }
-
-  if(d.error){
-   $("estado").textContent="Error de Deriv";
-   $("detalle").textContent=d.error.message;
-   return;
-  }
-
-  if(d.msg_type==="active_symbols" ||
-     Array.isArray(d.active_symbols) ||
-     Array.isArray(d.data?.active_symbols)){
-   buscarSimbolos(d);
-   return;
-  }
-
-  if(d.msg_type==="candles" && d.candles){
-   m1=d.candles.map(c=>({
-    time:Number(c.epoch),
-    open:Number(c.open),
-    high:Number(c.high),
-    low:Number(c.low),
-    close:Number(c.close)
-   })).sort((a,b)=>a.time-b.time);
-
-   $("detalle").textContent=
-    "Historial recibido: "+m1.length+" velas M1.";
-
-   $("m1").textContent="M1: "+m1.length+" velas";
-   $("m5").textContent="M5: "+agruparM5(m1).length+" velas";
-   return;
-  }
-
-  if(d.msg_type==="tick" && d.tick){
-   if(suscripcion &&
-      d.tick.symbol &&
-      d.tick.symbol!==suscripcion)return;
-
-   let p=Number(d.tick.quote);
-   let t=Number(d.tick.epoch);
-
-   if(!Number.isFinite(p)||!Number.isFinite(t))return;
-
-   ticks++;
-
-   $("precio").textContent=precio(p);
-   $("ticks").textContent="Ticks nuevos: "+ticks;
-   $("estado").textContent="Recibiendo cotizaciones en vivo";
-   $("detalle").textContent="Símbolo: "+suscripcion;
-
-   actualizarVela({price:p,time:t});
-  }
- };
-
- ws.onerror=()=>{
-  $("estado").textContent="Error de conexión";
-  $("detalle").textContent="Revisa la conexión a Internet.";
- };
-
- ws.onclose=(e)=>{
-  $("estado").textContent="Conexión cerrada";
-  $("detalle").textContent=
-   "Código "+e.code+". Presiona RECONECTAR.";
- };
-}
-
-conectar();
+draw();
+window.addEventListener('resize',draw);
 </script>
 
 </body>
 </html>
+
 
 
 
