@@ -125,363 +125,487 @@ let mercado="BOOM1000",simbolos={},ultimaSenal=null;
 let alertas=false,suscripcion=null;
 let historialResultados={BOOM1000:[],STEP:[]};
 let operaciones=[],puntosSenal=[];
+let historialListo=false;
+let reqHistorial=null,reqTicks=null;
+let ultimaCotizacion=null;
+let conexionId=0;
 
 const $=id=>document.getElementById(id);
 
-function precio(n){return Number(n).toFixed(pip)}
+function precio(n){
+ return Number.isFinite(Number(n))?Number(n).toFixed(pip):"---";
+}
 
 function ema(d,p){
- if(d.length<p)return null;
+ if(!Array.isArray(d)||d.length<p)return null;
  let k=2/(p+1),v=d[0];
  for(let i=1;i<d.length;i++)v=d[i]*k+v*(1-k);
- return v;
+ return Number.isFinite(v)?v:null;
 }
 
 function rsi(d,p=14){
  if(d.length<=p)return null;
- let g=0,b=0;
- for(let i=d.length-p;i<d.length;i++){
+ let ganancias=0,perdidas=0;
+
+ for(let i=1;i<=p;i++){
   let c=d[i]-d[i-1];
-  if(c>0)g+=c;else b-=c;
+  if(c>0)ganancias+=c;
+  else perdidas-=c;
  }
- if(b===0)return 100;
- return 100-100/(1+g/b);
+
+ let ag=ganancias/p,ap=perdidas/p;
+
+ for(let i=p+1;i<d.length;i++){
+  let c=d[i]-d[i-1];
+  ag=(ag*(p-1)+Math.max(c,0))/p;
+  ap=(ap*(p-1)+Math.max(-c,0))/p;
+ }
+
+ if(ap===0)return ag===0?50:100;
+ return 100-100/(1+ag/ap);
 }
 
 function atr(d,p=14){
  if(d.length<p+1)return null;
  let tr=[];
+
  for(let i=1;i<d.length;i++){
   let c=d[i],a=d[i-1];
-  tr.push(Math.max(c.high-c.low,
+  tr.push(Math.max(
+   c.high-c.low,
    Math.abs(c.high-a.close),
-   Math.abs(c.low-a.close)));
+   Math.abs(c.low-a.close)
+  ));
  }
+
  return tr.slice(-p).reduce((x,y)=>x+y,0)/p;
 }
 
 function agruparM5(d){
  let mapa=new Map();
+
  for(let v of d){
-  let t=Math.floor(v.time/300)*300,c=mapa.get(t);
-  if(!c)mapa.set(t,{time:t,open:v.open,high:v.high,low:v.low,close:v.close});
-  else{
+  let t=Math.floor(v.time/300)*300;
+  let c=mapa.get(t);
+
+  if(!c){
+   mapa.set(t,{
+    time:t,open:v.open,high:v.high,
+    low:v.low,close:v.close
+   });
+  }else{
    c.high=Math.max(c.high,v.high);
    c.low=Math.min(c.low,v.low);
    c.close=v.close;
   }
  }
+
  return [...mapa.values()].sort((a,b)=>a.time-b.time);
 }
 
 function limpiar(){
  $("senal").textContent="ESPERANDO";
  $("senal").className="signal wait";
- ["entrada","sl","tp1","tp2","tp3"].forEach(id=>$(id).textContent="---");
+
+ ["entrada","sl","tp1","tp2","tp3"].forEach(id=>{
+  $(id).textContent="---";
+ });
+
  $("motivo").textContent="Analizando mercado...";
 }
 
+function bloquear(mensaje){
+ $("senal").textContent="DATOS NO VALIDADOS";
+ $("senal").className="signal wait";
+ $("motivo").textContent=mensaje;
+
+ ["entrada","sl","tp1","tp2","tp3"].forEach(id=>{
+  $(id).textContent="---";
+ });
+}
+
 async function activarAlertas(){
- if(!("Notification" in window)){alert("Tu navegador no admite notificaciones.");return}
+ if(!("Notification" in window)){
+  alert("Tu navegador no admite notificaciones.");
+  return;
+ }
+
  let p=await Notification.requestPermission();
  alertas=p==="granted";
  alert(alertas?"Alertas activadas":"Permiso no concedido.");
 }
 
 function notificar(t,m){
- if(alertas&&Notification.permission==="granted")new Notification(t,{body:m});
+ if(alertas&&Notification.permission==="granted"){
+  new Notification(t,{body:m});
+ }
 }
 
 function actualizarEstadisticas(){
  let d=historialResultados[mercado]||[];
  let g=d.filter(x=>x==="WIN").length;
- let p=d.filter(x=>x==="LOSS").length,total=g+p;
+ let p=d.filter(x=>x==="LOSS").length;
+ let total=g+p;
+
  $("senales").textContent=total;
  $("ganadas").textContent=g;
  $("perdidas").textContent=p;
- $("acierto").textContent=total?(g/total*100).toFixed(1)+"%":"--";
+ $("acierto").textContent=total?
+  (g/total*100).toFixed(1)+"%":"--";
 }
 
-function revisarOperaciones(v){
+
+function datosCoherentes(cierre,atrValor){
+ if(!Number.isFinite(ultimaCotizacion)||!Number.isFinite(cierre))return false;
+ let diferencia=Math.abs(ultimaCotizacion-cierre);
+ let tolerancia=Math.max(Math.abs(ultimaCotizacion)*0.05,atrValor*30,Math.pow(10,-pip)*100);
+ return diferencia<=tolerancia;
+}
+
+function conectar(){
+ conexionId++;
+ const miConexion=conexionId;
+ if(ws){try{ws.close()}catch(e){}}
+
+ ws=new WebSocket("wss://ws.derivws.com/websockets/v3?app_id=1089");
+ historialListo=false;
+ suscripcion=null;
+ m1=[];
+ ticks=0;
+ ultimaCotizacion=null;
+ limpiar();
+ dibujar();
+
+ $("estado").textContent="Conectando...";
+ $("detalle").textContent="Conectando con Deriv...";
+
+ ws.onopen=()=>{
+  if(miConexion!==conexionId)return;
+  $("estado").textContent="Conectado";
+  $("estado").className="good";
+  $("detalle").textContent="Buscando mercados...";
+  ws.send(JSON.stringify({active_symbols:"brief",product_type:"basic",req_id:1}));
+ };
+
+ ws.onmessage=e=>{
+  if(miConexion!==conexionId)return;
+  let d;
+  try{d=JSON.parse(e.data)}catch(err){return}
+
+  if(d.error){
+   $("detalle").textContent=d.error.message||"Error de conexión";
+   return;
+  }
+
+  if(d.msg_type==="active_symbols"){
+   buscarSimbolos(d.active_symbols||[]);
+  }
+
+  if(d.msg_type==="candles"){
+   if(d.req_id!==reqHistorial)return;
+   if(d.echo_req?.ticks_history!==suscripcion)return;
+
+   m1=(d.candles||[]).map(c=>({
+    time:Number(c.epoch),
+    open:Number(c.open),
+    high:Number(c.high),
+    low:Number(c.low),
+    close:Number(c.close)
+   })).filter(c=>
+    Number.isFinite(c.time)&&Number.isFinite(c.open)&&
+    Number.isFinite(c.high)&&Number.isFinite(c.low)&&
+    Number.isFinite(c.close)&&c.high>=c.low
+   ).sort((a,b)=>a.time-b.time);
+
+   if(m1.length>500)m1=m1.slice(-500);
+   historialListo=m1.length>=55;
+   $("velas").textContent="Velas cargadas: "+m1.length;
+
+   if(!historialListo)bloquear("Historial insuficiente para EMA 50.");
+   dibujar();
+  }
+
+  if(d.msg_type==="tick"){
+   let t=d.tick;
+   if(!t||t.symbol!==suscripcion)return;
+   let cot=Number(t.quote),tiempo=Number(t.epoch);
+   if(!Number.isFinite(cot)||!Number.isFinite(tiempo))return;
+
+   ultimaCotizacion=cot;
+   ticks++;
+   $("precio").textContent=precio(cot);
+   $("ticks").textContent="Ticks recibidos: "+ticks;
+
+   if(!historialListo)return;
+   actualizarVela(cot,tiempo);
+   analizar();
+   revisarOperaciones(cot);
+   dibujar();
+  }
+ };
+
+ ws.onerror=()=>{
+  if(miConexion!==conexionId)return;
+  $("estado").textContent="Error de conexión";
+  $("estado").className="bad";
+ };
+
+ ws.onclose=()=>{
+  if(miConexion!==conexionId)return;
+  $("estado").textContent="Conexión cerrada";
+  $("estado").className="bad";
+ };
+}
+
+function buscarSimbolos(lista){
+ let boom=lista.find(x=>/boom.*1000|1000.*boom/i.test((x.display_name||"")+" "+(x.symbol||"")));
+ let step=lista.find(x=>/step index/i.test((x.display_name||"")+" "+(x.symbol||"")));
+
+ simbolos.BOOM1000=boom?.symbol||null;
+ simbolos.STEP=step?.symbol||null;
+
+ $("boomEstado").textContent="BOOM 1000: "+(simbolos.BOOM1000||"No encontrado");
+ $("stepEstado").textContent="STEP INDEX: "+(simbolos.STEP||"No encontrado");
+ iniciarMercado();
+}
+
+function cambiarMercado(){
+ mercado=$("mercado").value;
+ iniciarMercado();
+}
+
+function iniciarMercado(){
+ if(!ws||ws.readyState!==1)return;
+ mercado=$("mercado").value;
+ let simbolo=simbolos[mercado];
+
+ m1=[];
+ ticks=0;
+ historialListo=false;
+ ultimaCotizacion=null;
+ ultimaSenal=null;
+ suscripcion=simbolo;
+ operaciones=[];
+ limpiar();
+ dibujar();
+ actualizarEstadisticas();
+
+ $("nombre").textContent=mercado==="BOOM1000"?"BOOM 1000":"STEP INDEX";
+
+ if(!simbolo){
+  bloquear("No se encontró el símbolo en Deriv.");
+  return;
+ }
+
+ $("precio").textContent="---";
+ $("detalle").textContent="Cargando historial de "+simbolo;
+
+ reqHistorial=Date.now();
+ reqTicks=reqHistorial+1;
+
+ ws.send(JSON.stringify({
+  ticks_history:simbolo,adjust_start_time:1,count:500,
+  end:"latest",style:"candles",granularity:60,req_id:reqHistorial
+ }));
+
+ ws.send(JSON.stringify({ticks:simbolo,subscribe:1,req_id:reqTicks}));
+}
+
+function actualizarVela(cot,tiempo){
+ let minuto=Math.floor(tiempo/60)*60;
+ let ultima=m1[m1.length-1];
+ if(!ultima)return;
+ if(minuto<ultima.time)return;
+
+ if(minuto===ultima.time){
+  ultima.high=Math.max(ultima.high,cot);
+  ultima.low=Math.min(ultima.low,cot);
+  ultima.close=cot;
+ }else{
+  if(minuto-ultima.time>120){
+   historialListo=false;
+   bloquear("Historial desactualizado. Reconecta.");
+   return;
+  }
+  m1.push({
+   time:minuto,open:ultima.close,
+   high:Math.max(ultima.close,cot),
+   low:Math.min(ultima.close,cot),close:cot
+  });
+  if(m1.length>500)m1.shift();
+ }
+ $("velas").textContent="Velas M1: "+m1.length;
+}
+
+function analizar(){
+ if(!historialListo||m1.length<55)return;
+
+ let cierres=m1.map(c=>c.close);
+ let e20=ema(cierres.slice(-100),20);
+ let e50=ema(cierres.slice(-150),50);
+ let rv=rsi(cierres,14);
+ let av=atr(m1,14);
+
+ if([e20,e50,rv,av].some(x=>!Number.isFinite(x))){
+  bloquear("Indicadores sin datos suficientes.");
+  return;
+ }
+
+ if(!datosCoherentes(m1[m1.length-1].close,av)){
+  bloquear("Precio e historial no coinciden. Señales bloqueadas.");
+  return;
+ }
+
+ let m5=agruparM5(m1);
+ let c5=m5.map(c=>c.close);
+ let e20m5=ema(c5,20);
+ let e50m5=ema(c5,50);
+
+ let actual=m1[m1.length-1];
+ let anterior=m1[m1.length-2];
+ let cuerpo=Math.abs(actual.close-actual.open);
+ let soporte=Math.min(...m1.slice(-30).map(c=>c.low));
+
+ $("ema").textContent="EMA20: "+precio(e20)+" | EMA50: "+precio(e50);
+ $("rsi").textContent="RSI 14: "+rv.toFixed(1);
+ $("atr").textContent="ATR 14: "+precio(av);
+ $("tendencia").textContent="Tendencia M5: "+(e20m5>e50m5?"ALCISTA":e20m5<e50m5?"BAJISTA":"LATERAL");
+ $("impulso").textContent="Cuerpo M1: "+precio(cuerpo);
+
+ let compra=e20>e50&&e20m5>e50m5&&rv>=53&&rv<=68&&
+  actual.close>actual.open&&cuerpo>=av*0.8&&actual.close>anterior.high;
+
+ let venta=mercado==="STEP"&&e20<e50&&e20m5<e50m5&&
+  rv>=32&&rv<=47&&actual.close<actual.open&&
+  cuerpo>=av*0.8&&actual.close<anterior.low;
+
+ let clave=mercado+"-"+actual.time;
+
+ if((compra||venta)&&ultimaSenal!==clave){
+  ultimaSenal=clave;
+  crearSenal(compra?"BUY":"SELL",actual.close,av,clave);
+ }else if(!compra&&!venta&&ultimaSenal!==clave){
+  $("senal").textContent="SIN SEÑAL";
+  $("senal").className="signal wait";
+  $("motivo").textContent="Esperando confirmación de filtros.";
+ }
+}
+
+function crearSenal(tipo,entrada,av,clave){
+ let distancia=av*1.5;
+ let op={
+  clave,tipo,entrada,
+  sl:tipo==="BUY"?entrada-distancia:entrada+distancia,
+  tp1:tipo==="BUY"?entrada+av:entrada-av,
+  tp2:tipo==="BUY"?entrada+av*2:entrada-av*2,
+  tp3:tipo==="BUY"?entrada+av*3:entrada-av*3,
+  estado:"OPEN"
+ };
+ operaciones.push(op);
+
+ $("senal").textContent=tipo;
+ $("senal").className="signal good";
+ $("motivo").textContent="Señal confirmada por tendencia, impulso y RSI.";
+ $("entrada").textContent=precio(op.entrada);
+ $("sl").textContent=precio(op.sl);
+ $("tp1").textContent=precio(op.tp1);
+ $("tp2").textContent=precio(op.tp2);
+ $("tp3").textContent=precio(op.tp3);
+
+ notificar(mercado+" "+tipo,"Entrada: "+precio(op.entrada)+" | SL: "+precio(op.sl)+" | TP1: "+precio(op.tp1));
+}
+
+function revisarOperaciones(cot){
  for(let op of operaciones){
-  if(op.terminada)continue;
-  let stop=op.dir==="BUY"?v.low<=op.sl:v.high>=op.sl;
-  let objetivo=op.dir==="BUY"?v.high>=op.tp1:v.low<=op.tp1;
+  if(op.estado!=="OPEN")continue;
+  let stop=op.tipo==="BUY"?cot<=op.sl:cot>=op.sl;
+  let objetivo=op.tipo==="BUY"?cot>=op.tp1:cot<=op.tp1;
+
   if(stop){
-   op.terminada=true;
-   historialResultados[op.mercado].push("LOSS");
+   op.estado="LOSS";
+   historialResultados[mercado].push("LOSS");
   }else if(objetivo){
-   op.terminada=true;
-   historialResultados[op.mercado].push("WIN");
+   op.estado="WIN";
+   historialResultados[mercado].push("WIN");
   }
  }
  actualizarEstadisticas();
 }
 
-function evaluar(ahora){
- let m5=agruparM5(m1);
- let limite=Math.floor(ahora/300)*300;
- let cerradas5=m5.filter(v=>v.time+300<=limite);
-
- if(m1.length<16||cerradas5.length<51){
-  $("senal").textContent="CARGANDO HISTORIAL";
-  $("motivo").textContent="Esperando 51 velas M5 cerradas.";
-  return;
- }
-
- let e20=ema(cerradas5.map(v=>v.close),20);
- let e50=ema(cerradas5.map(v=>v.close),50);
- let ultimo5=cerradas5[cerradas5.length-1];
- let minuto=Math.floor(ahora/60)*60;
- let d=m1.filter(v=>v.time<minuto);
- if(d.length<16)return;
-
- let actual=d[d.length-1],anterior=d[d.length-2];
- let r=rsi(d.map(v=>v.close)),a=atr(d);
- if(r===null||!a||!e20||!e50)return;
-
- let cuerpo=actual.close-actual.open;
- let rango=actual.high-actual.low;
- let alcista=rango>0&&(actual.high-actual.close)/rango<=.25;
- let bajista=rango>0&&(actual.close-actual.low)/rango<=.25;
- let tendenciaBuy=e20>e50&&ultimo5.close>e20;
- let tendenciaSell=e20<e50&&ultimo5.close<e20;
-
- let buy=false,sell=false;
- if(mercado==="BOOM1000"){
-  buy=tendenciaBuy&&r>=53&&r<=68&&cuerpo>=1.25*a&&alcista&&actual.close>anterior.high;
- }else{
-  buy=tendenciaBuy&&r>=52&&r<=68&&cuerpo>=1.10*a&&alcista&&actual.close>anterior.high;
-  sell=tendenciaSell&&r>=32&&r<=48&&cuerpo<=-1.10*a&&bajista&&actual.close<anterior.low;
- }
-
- $("tendencia").textContent="BUY: "+(tendenciaBuy?"ALCISTA":"NO")+" | SELL: "+(tendenciaSell?"BAJISTA":"NO");
- $("ema").textContent="EMA20: "+precio(e20)+" | EMA50: "+precio(e50);
- $("rsi").textContent="RSI 14: "+r.toFixed(2);
- $("atr").textContent="ATR 14: "+precio(a);
- $("impulso").textContent="Cuerpo M1: "+precio(cuerpo);
-
- let direccion=buy?"BUY":sell?"SELL":null;
- if(!direccion){
-  limpiar();
-  $("senal").textContent="SIN SEÑAL";
-  $("motivo").textContent="Los filtros no coinciden.";
-  return;
- }
-
- let clave=mercado+"-"+direccion+"-"+actual.time;
- if(clave===ultimaSenal)return;
- ultimaSenal=clave;
-
- let entrada=actual.close;
- let sl=entrada+(direccion==="BUY"?-1:1)*1.2*a;
- let t1=entrada+(direccion==="BUY"?1:-1)*a;
- let t2=entrada+(direccion==="BUY"?1:-1)*1.8*a;
- let t3=entrada+(direccion==="BUY"?1:-1)*2.5*a;
-
- $("senal").textContent="SEÑAL "+direccion;
- $("senal").className="signal good";
- $("motivo").textContent="Filtros confirmados al cierre M1.";
- $("entrada").textContent=precio(entrada);
- $("sl").textContent=precio(sl);
- $("tp1").textContent=precio(t1);
- $("tp2").textContent=precio(t2);
- $("tp3").textContent=precio(t3);
-
- operaciones.push({mercado,dir:direccion,entrada,sl,tp1:t1,tp2:t2,tp3:t3,terminada:false});
- puntosSenal.push({time:actual.time,dir:direccion,price:entrada});
- if(puntosSenal.length>100)puntosSenal.shift();
- notificar(mercado+" "+direccion,"Entrada "+precio(entrada)+" | SL "+precio(sl));
-}
-
-function actualizarVela(v){
- let t=Math.floor(v.time/60)*60,u=m1[m1.length-1];
- if(!u||t>u.time){
-  if(u){evaluar(v.time);revisarOperaciones(u)}
-  m1.push({time:t,open:v.price,high:v.price,low:v.price,close:v.price});
- }else if(t===u.time){
-  u.high=Math.max(u.high,v.price);
-  u.low=Math.min(u.low,v.price);
-  u.close=v.price;
- }
- if(m1.length>1100)m1=m1.slice(-1100);
- $("velas").textContent="Velas M1: "+m1.length+" | Velas M5: "+agruparM5(m1).length;
- dibujar();
-}
-
 function dibujar(){
- let canvas=$("chart"),rect=canvas.getBoundingClientRect(),w=rect.width,h=310;
- if(!w)return;
+ let canvas=$("chart");
+ if(!canvas)return;
+ let rect=canvas.getBoundingClientRect();
+ let w=Math.max(300,rect.width),h=310;
  let ratio=window.devicePixelRatio||1;
- canvas.width=w*ratio;canvas.height=h*ratio;
+
+ canvas.width=w*ratio;
+ canvas.height=h*ratio;
  let ctx=canvas.getContext("2d");
  ctx.setTransform(ratio,0,0,ratio,0,0);
  ctx.clearRect(0,0,w,h);
- ctx.fillStyle="#0c131d";ctx.fillRect(0,0,w,h);
+ ctx.fillStyle="#0c131d";
+ ctx.fillRect(0,0,w,h);
 
- let datos=Number($("periodo").value)===1?m1:agruparM5(m1);
- datos=datos.slice(-65);
+ let periodo=Number($("periodo").value);
+ let datos=periodo===5?agruparM5(m1):m1;
+
  if(datos.length<2){
-  ctx.fillStyle="#aab8c8";ctx.font="14px Arial";
-  ctx.fillText("Esperando velas reales de Deriv...",15,35);return;
+  ctx.fillStyle="#aab8c8";
+  ctx.fillText("Esperando velas...",15,30);
+  return;
  }
 
- let max=Math.max(...datos.map(x=>x.high));
- let min=Math.min(...datos.map(x=>x.low));
- let margen=(max-min)*.12||1;max+=margen;min-=margen;
- let iz=12,der=w-65,ancho=der-iz,alto=h-35;
- function y(p){return alto-(p-min)/(max-min)*alto+10}
- function x(i){return iz+i*ancho/datos.length+ancho/datos.length/2}
+ datos=datos.slice(-65);
+ let max=Math.max(...datos.map(c=>c.high));
+ let min=Math.min(...datos.map(c=>c.low));
+ let margen=(max-min)*0.12||1;
+ max+=margen;min-=margen;
 
- ctx.strokeStyle="#243344";
+ const y=v=>h-20-(v-min)/(max-min)*(h-40);
+ const paso=w/datos.length;
+
  for(let i=0;i<5;i++){
-  let yy=10+i*alto/4;ctx.beginPath();ctx.moveTo(iz,yy);ctx.lineTo(w-4,yy);ctx.stroke();
+  let yy=20+i*(h-40)/4;
+  ctx.strokeStyle="#233243";
+  ctx.beginPath();ctx.moveTo(0,yy);ctx.lineTo(w,yy);ctx.stroke();
  }
 
- function linea(p,color){
-  ctx.strokeStyle=color;ctx.setLineDash([4,4]);
-  ctx.beginPath();ctx.moveTo(iz,y(p));ctx.lineTo(der,y(p));ctx.stroke();
-  ctx.setLineDash([]);
- }
- linea(Math.min(...datos.map(v=>v.low)),"#e4c15c");
- linea(Math.max(...datos.map(v=>v.high)),"#ff7777");
-
- let cierres=datos.map(v=>v.close);
- function dibujarEMA(p,color){
-  ctx.strokeStyle=color;ctx.lineWidth=1.8;ctx.beginPath();
-  let iniciado=false;
-  datos.forEach((v,i)=>{
-   let valor=ema(cierres.slice(0,i+1),p);
-   if(valor===null)return;
-   if(!iniciado){ctx.moveTo(x(i),y(valor));iniciado=true}
-   else ctx.lineTo(x(i),y(valor));
-  });
-  ctx.stroke();
- }
- dibujarEMA(20,"#55d6a3");
- dibujarEMA(50,"#55a5e8");
-
- let cw=Math.max(3,ancho/datos.length*.58);
- datos.forEach((v,i)=>{
-  let xx=x(i),verde=v.close>=v.open,color=verde?"#fff":"#8795a5";
+ datos.forEach((c,i)=>{
+  let x=i*paso+paso/2;
+  let color=c.close>=c.open?"#ffffff":"#f05b68";
   ctx.strokeStyle=color;ctx.fillStyle=color;
-  ctx.beginPath();ctx.moveTo(xx,y(v.high));ctx.lineTo(xx,y(v.low));ctx.stroke();
-  ctx.fillRect(xx-cw/2,Math.min(y(v.open),y(v.close)),cw,Math.max(1,Math.abs(y(v.open)-y(v.close))));
+  ctx.beginPath();ctx.moveTo(x,y(c.high));ctx.lineTo(x,y(c.low));ctx.stroke();
+  let top=y(Math.max(c.open,c.close));
+  let bottom=y(Math.min(c.open,c.close));
+  ctx.fillRect(x-paso*0.3,top,paso*0.6,Math.max(2,bottom-top));
  });
- puntosSenal.slice(-25).forEach(s=>{
-  let i=datos.findIndex(v=>v.time===s.time);
-  if(i<0)return;
-  ctx.fillStyle=s.dir==="BUY"?"#55d6a3":"#ff7777";
-  ctx.font="bold 11px Arial";
-  ctx.fillText(s.dir==="BUY"?"▲":"▼",x(i)-5,s.dir==="BUY"?y(datos[i].low)+17:y(datos[i].high)-8);
- });
- ctx.fillStyle="#aab8c8";ctx.font="10px Arial";
- ctx.fillText(precio(max),der+3,14);
- ctx.fillText(precio(min),der+3,h-15);
-}
 
-function cambiarMercado(){
- mercado=$("mercado").value;
- $("nombre").textContent=mercado==="BOOM1000"?"BOOM 1000":"STEP INDEX";
- limpiar();conectar();
-}
+ let cierres=datos.map(c=>c.close);
+ let e20=ema(cierres,20),e50=ema(cierres,50);
 
-function iniciar(symbol,info){
- m1=[];ticks=0;ultimaSenal=null;puntosSenal=[];operaciones=[];
- pip=Number(info?.pip_size)||Number(info?.pip)||3;
- limpiar();
- $("precio").textContent="Esperando...";
- $("ticks").textContent="Ticks: 0";
- $("detalle").textContent="Cargando "+symbol+"...";
- ws.send(JSON.stringify({ticks_history:symbol,count:500,end:"latest",style:"candles",granularity:60,req_id:10}));
- ws.send(JSON.stringify({ticks:symbol,subscribe:1,req_id:11}));
-}
+ function linea(valor,color){
+  if(!Number.isFinite(valor))return;
+  ctx.strokeStyle=color;ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(0,y(valor));ctx.lineTo(w,y(valor));ctx.stroke();
+ }
 
-function conectar(){
- if(ws){try{ws.close()}catch(e){}}
- m1=[];ticks=0;simbolos={};suscripcion=null;
- ultimaSenal=null;operaciones=[];puntosSenal=[];
- limpiar();actualizarEstadisticas();dibujar();
- $("estado").textContent="Conectando...";
- $("detalle").textContent="Solicitando mercados Deriv...";
-
- const socket=new WebSocket("wss://api.derivws.com/trading/v1/options/ws/public");
- ws=socket;
-
- socket.onopen=()=>{
-  if(ws!==socket)return;
-  $("estado").textContent="Conectado";
-  socket.send(JSON.stringify({active_symbols:"full",req_id:1}));
- };
-
- socket.onmessage=(event)=>{
-  if(ws!==socket)return;
-  let d;try{d=JSON.parse(event.data)}catch(e){return}
-  if(d.error){
-   $("detalle").textContent="Error Deriv: "+d.error.message;return;
-  }
-
-  if(d.msg_type==="active_symbols"){
-   let lista=d.active_symbols||[];
-   function nombre(x){
-    return [x.display_name,x.underlying_symbol_name,x.symbol,x.underlying_symbol].filter(Boolean).join(" ").toLowerCase();
-   }
-   let boom=lista.find(x=>/boom\s*1000/i.test(nombre(x)));
-   let step=lista.find(x=>/step\s*index/i.test(nombre(x)));
-   simbolos.BOOM1000=boom||null;simbolos.STEP=step||null;
-   $("boomEstado").textContent="BOOM 1000: "+(boom?"Disponible":"No encontrado");
-   $("stepEstado").textContent="STEP INDEX: "+(step?"Disponible":"No encontrado");
-   let info=simbolos[mercado];
-   if(!info){
-    let encontrados=lista.filter(x=>/step|boom/i.test(nombre(x)));
-    $("estado").textContent="Símbolo no encontrado";
-    $("detalle").textContent="Mercados similares: "+encontrados.map(x=>(x.display_name||x.underlying_symbol_name||"?")+" ("+(x.symbol||x.underlying_symbol)+")").join(" | ");
-    return;
-   }
-   suscripcion=info.symbol||info.underlying_symbol;
-   if(!suscripcion){$("estado").textContent="Símbolo sin código";return}
-   iniciar(suscripcion,info);
-  }
-
-  if(d.msg_type==="candles"&&d.candles){
-   m1=d.candles.map(c=>({
-    time:Number(c.epoch),open:Number(c.open),
-    high:Number(c.high),low:Number(c.low),close:Number(c.close)
-   })).sort((a,b)=>a.time-b.time);
-   $("detalle").textContent="Historial recibido: "+m1.length+" velas M1.";
-   $("velas").textContent="M1: "+m1.length+" velas";
-   dibujar();
-  }
-
-  if(d.msg_type==="tick"&&d.tick){
-   if(suscripcion&&d.tick.symbol&&d.tick.symbol!==suscripcion)return;
-   let p=Number(d.tick.quote),t=Number(d.tick.epoch);
-   if(!Number.isFinite(p)||!Number.isFinite(t))return;
-   pip=Number(d.tick.pip_size)||pip;ticks++;
-   $("precio").textContent=precio(p);
-   $("ticks").textContent="Ticks nuevos: "+ticks;
-   $("estado").textContent="Recibiendo datos en vivo";
-   $("detalle").textContent="Símbolo: "+suscripcion;
-   actualizarVela({price:p,time:t});
-  }
- };
-
- socket.onerror=()=>{
-  if(ws!==socket)return;
-  $("estado").textContent="Error de conexión";
- };
- socket.onclose=(e)=>{
-  if(ws!==socket)return;
-  $("estado").textContent="Conexión cerrada";
-  $("detalle").textContent="Código "+e.code+". Presiona RECONECTAR.";
- };
+ linea(e20,"#55d6a3");
+ linea(e50,"#e6b85c");
+ ctx.setLineDash([5,4]);
+ linea(Math.min(...datos.map(c=>c.low)),"#55aaff");
+ linea(Math.max(...datos.map(c=>c.high)),"#ff7777");
+ ctx.setLineDash([]);
 }
 
 window.addEventListener("resize",dibujar);
-window.addEventListener("load",()=>{conectar();dibujar()});
+actualizarEstadisticas();
+conectar();
 </script>
 </body>
 </html>
+
+
 
 
 
