@@ -6,12 +6,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BOOM PULSE 1000 CLOUD</title>
 <style>
-body{background:#101722;color:white;font-family:Arial;padding:16px}
-.panel{max-width:600px;margin:auto}
-.card{background:#1c2939;padding:18px;border-radius:12px;margin:14px 0}
+body{background:#101722;color:white;font-family:Arial;padding:15px}
+.panel{max-width:650px;margin:auto}
+.card{background:#1c2939;padding:16px;border-radius:12px;margin:13px 0}
 h1{color:#55d6a3}
-.precio{font-size:36px;color:#55d6a3;font-weight:bold}
+.precio{font-size:34px;color:#55d6a3;font-weight:bold}
 button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{text-align:center;padding:8px;border-bottom:1px solid #405064}
 small{color:#aab8c8}
 </style>
 </head>
@@ -21,7 +23,7 @@ small{color:#aab8c8}
 
 <div class="card">
 <h3>CONEXIÓN DERIV</h3>
-<p id="estado">Iniciando...</p>
+<p id="estado">Conectando...</p>
 <p id="detalle">Preparando conexión</p>
 <button onclick="conectar()">REConectar</button>
 </div>
@@ -29,66 +31,141 @@ small{color:#aab8c8}
 <div class="card">
 <h3>BOOM 1000 INDEX</h3>
 <div class="precio" id="precio">Esperando precio...</div>
+<p id="contador">Ticks recibidos: 0</p>
 <p id="hora">Esperando cotización</p>
 </div>
 
 <div class="card">
-<h3>DATOS DEL MERCADO</h3>
-<p id="contador">Ticks recibidos: 0</p>
-<p id="ultimo">Último movimiento: --</p>
-<p id="simbolo">Símbolo: BOOM1000</p>
+<h3>VELAS M1</h3>
+<p id="total1">Velas: 0</p>
+<div id="tabla1">Esperando historial...</div>
 </div>
 
 <div class="card">
-<h3>ANÁLISIS</h3>
-<p>Marco principal: M5</p>
+<h3>VELAS M5</h3>
+<p id="total5">Velas: 0</p>
+<div id="tabla5">Esperando historial...</div>
+</div>
+
+<div class="card">
+<h3>ANÁLISIS BOOM PULSE</h3>
+<p>Tendencia principal: M5</p>
 <p>Entrada: M1</p>
 <p>Operaciones permitidas: BUY únicamente</p>
-<p id="analisis">Esperando datos suficientes...</p>
+<p id="analisis">Esperando suficientes datos...</p>
 </div>
 </div>
 
 <script>
 let ws=null;
-let total=0;
-let ultimoPrecio=null;
-let heartbeat=null;
-let suscrito=false;
+let ticks=0;
+let candles1=new Map();
+let candles5=new Map();
+let pip=2;
+
+function agregarTick(precio,epoch){
+ const minuto=Math.floor(epoch/60)*60;
+ const cinco=Math.floor(epoch/300)*300;
+
+ actualizarVela(candles1,minuto,precio);
+ actualizarVela(candles5,cinco,precio);
+}
+
+function actualizarVela(mapa,tiempo,precio){
+ let v=mapa.get(tiempo);
+
+ if(!v){
+  v={time:tiempo,open:precio,high:precio,low:precio,close:precio};
+ }else{
+  v.high=Math.max(v.high,precio);
+  v.low=Math.min(v.low,precio);
+  v.close=precio;
+ }
+ mapa.set(tiempo,v);
+}
+
+function mostrarVelas(mapa,tabla,total){
+ const datos=[...mapa.values()]
+  .sort((a,b)=>a.time-b.time);
+ total.textContent="Velas recibidas: "+datos.length;
+
+ const ultimas=datos.slice(-8).reverse();
+
+ if(!ultimas.length){
+  tabla.textContent="Esperando datos...";
+  return;
+ }
+
+ let html="<table><tr><th>Hora</th><th>Apertura</th><th>Máximo</th><th>Mínimo</th><th>Cierre</th></tr>";
+
+ ultimas.forEach(v=>{
+  html+="<tr><td>"+new Date(v.time*1000).toLocaleTimeString()+
+  "</td><td>"+v.open.toFixed(pip)+
+  "</td><td>"+v.high.toFixed(pip)+
+  "</td><td>"+v.low.toFixed(pip)+
+  "</td><td>"+v.close.toFixed(pip)+"</td></tr>";
+ });
+
+ html+="</table>";
+ tabla.innerHTML=html;
+}
+
+function actualizarPantalla(){
+ mostrarVelas(
+  candles1,
+  document.getElementById("tabla1"),
+  document.getElementById("total1")
+ );
+
+ mostrarVelas(
+  candles5,
+  document.getElementById("tabla5"),
+  document.getElementById("total5")
+ );
+
+ if(candles1.size>=5 && candles5.size>=3){
+  document.getElementById("analisis").textContent=
+   "Historial recibido. Preparando filtros de tendencia y entradas BUY.";
+ }
+}
 
 function conectar(){
  if(ws){
   try{ws.close()}catch(e){}
  }
- if(heartbeat) clearInterval(heartbeat);
 
- total=0;
- ultimoPrecio=null;
- suscrito=false;
+ ticks=0;
+ candles1.clear();
+ candles5.clear();
 
  document.getElementById("estado").textContent="Conectando...";
- document.getElementById("detalle").textContent="Abriendo conexión pública";
+ document.getElementById("detalle").textContent="Solicitando historial y cotizaciones";
  document.getElementById("precio").textContent="Esperando precio...";
- document.getElementById("contador").textContent="Ticks recibidos: 0";
- document.getElementById("ultimo").textContent="Último movimiento: --";
- document.getElementById("analisis").textContent="Esperando datos suficientes...";
+ document.getElementById("analisis").textContent="Esperando suficientes datos...";
+
+ actualizarPantalla();
 
  ws=new WebSocket(
   "wss://api.derivws.com/trading/v1/options/ws/public"
  );
 
  ws.onopen=()=>{
-  document.getElementById("estado").textContent="Conexión abierta";
-  document.getElementById("detalle").textContent="Buscando BOOM1000...";
+  document.getElementById("estado").textContent="Conectado a Deriv";
+  document.getElementById("detalle").textContent="Solicitando historial M1 y M5";
+
   ws.send(JSON.stringify({
-   active_symbols:"full",
+   ticks_history:"BOOM1000",
+   count:1000,
+   end:"latest",
+   style:"ticks",
    req_id:1
   }));
 
-  heartbeat=setInterval(()=>{
-   if(ws && ws.readyState===WebSocket.OPEN){
-    ws.send(JSON.stringify({ping:1}));
-   }
-  },30000);
+  ws.send(JSON.stringify({
+   ticks:"BOOM1000",
+   subscribe:1,
+   req_id:2
+  }));
  };
 
  ws.onmessage=(event)=>{
@@ -96,75 +173,56 @@ function conectar(){
   try{d=JSON.parse(event.data)}catch(e){return;}
 
   if(d.error){
-   document.getElementById("estado").textContent="Error de Deriv";
-   document.getElementById("detalle").textContent=d.error.message;
+   document.getElementById("detalle").textContent=
+    "Error: "+d.error.message;
    return;
   }
 
-  if(d.msg_type==="active_symbols" && !suscrito){
-   const lista=d.active_symbols || d.data?.active_symbols || [];
-   const encontrado=lista.find(x=>
-    x.symbol==="BOOM1000" ||
-    x.underlying_symbol==="BOOM1000"
-   );
+  if(d.msg_type==="history" && d.history){
+   const prices=d.history.prices||[];
+   const times=d.history.times||[];
 
-   if(encontrado){
-    suscrito=true;
-    document.getElementById("detalle").textContent=
-     "Mercado encontrado. Solicitando cotizaciones...";
-    ws.send(JSON.stringify({
-     ticks:"BOOM1000",
-     subscribe:1,
-     req_id:2
-    }));
-   }else{
-    document.getElementById("detalle").textContent=
-     "No se encontró BOOM1000 en la respuesta.";
+   pip=d.pip_size ?? 2;
+
+   for(let i=0;i<Math.min(prices.length,times.length);i++){
+    agregarTick(Number(prices[i]),Number(times[i]));
    }
+
+   document.getElementById("detalle").textContent=
+    "Historial recibido: "+prices.length+" ticks.";
+   actualizarPantalla();
   }
 
   if(d.msg_type==="tick" && d.tick){
-   const p=Number(d.tick.quote);
-   total++;
+   const precio=Number(d.tick.quote);
+   const tiempo=Number(d.tick.epoch);
+
+   if(!Number.isFinite(precio)||!Number.isFinite(tiempo))return;
+
+   pip=d.tick.pip_size ?? pip;
+   ticks++;
+
+   agregarTick(precio,tiempo);
 
    document.getElementById("estado").textContent="Conectado a Deriv";
-   document.getElementById("detalle").textContent="Recibiendo cotizaciones";
-   document.getElementById("precio").textContent=
-    p.toFixed(d.tick.pip_size ?? 2);
+   document.getElementById("detalle").textContent="Recibiendo cotizaciones en vivo";
+   document.getElementById("precio").textContent=precio.toFixed(pip);
+   document.getElementById("contador").textContent="Ticks nuevos: "+ticks;
    document.getElementById("hora").textContent=
-    "Último tick: "+new Date(d.tick.epoch*1000).toLocaleTimeString();
-   document.getElementById("contador").textContent=
-    "Ticks recibidos: "+total;
+    "Último tick: "+new Date(tiempo*1000).toLocaleTimeString();
 
-   if(ultimoPrecio!==null){
-    let m=p>ultimoPrecio?"Subiendo":
-          p<ultimoPrecio?"Bajando":"Sin cambio";
-    document.getElementById("ultimo").textContent=
-     "Último movimiento: "+m;
-   }
-
-   ultimoPrecio=p;
-
-   if(total>=100){
-    document.getElementById("analisis").textContent=
-     "Cotizaciones recibidas. Datos preparados para análisis M1 y M5.";
-   }
+   actualizarPantalla();
   }
  };
 
  ws.onerror=()=>{
   document.getElementById("estado").textContent="Error de conexión";
-  document.getElementById("detalle").textContent=
-   "El navegador reportó un error WebSocket.";
  };
 
  ws.onclose=(event)=>{
-  if(heartbeat) clearInterval(heartbeat);
   document.getElementById("estado").textContent="Conexión cerrada";
   document.getElementById("detalle").textContent=
-   "Código: "+event.code+
-   " | Motivo: "+(event.reason || "Sin motivo informado")+
-   " | Cierre limpio: "+event.wasClean;
+   "Código: "+event.code+" | "+(event.reason||"Sin motivo");
  };
 }
 
@@ -172,6 +230,7 @@ conectar();
 </script>
 </body>
 </html>
+
 
 
 
