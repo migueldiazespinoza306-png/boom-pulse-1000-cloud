@@ -4,163 +4,273 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BOOM PULSE 1000 CLOUD</title>
+<title>BOOM PULSE 1000 LIVE V1</title>
 <style>
-body{background:#101722;color:white;font-family:Arial;padding:15px}
+body{background:#101722;color:#fff;font-family:Arial;padding:15px}
 .panel{max-width:650px;margin:auto}
 .card{background:#1c2939;padding:16px;border-radius:12px;margin:13px 0}
 h1{color:#55d6a3}
-.precio{font-size:34px;color:#55d6a3;font-weight:bold}
+.price{font-size:32px;color:#55d6a3;font-weight:bold}
+.good{color:#55d6a3}.wait{color:#ffc45c}.bad{color:#ff7777}
 button{background:#168b68;color:white;border:0;padding:13px 20px;border-radius:8px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-td,th{text-align:center;padding:8px;border-bottom:1px solid #405064}
-small{color:#aab8c8}
+table{width:100%;border-collapse:collapse;font-size:12px}
+td,th{text-align:center;padding:7px;border-bottom:1px solid #405064}
 </style>
 </head>
 <body>
 <div class="panel">
-<h1>BOOM PULSE 1000 CLOUD</h1>
+<h1>BOOM PULSE 1000 LIVE V1</h1>
 
 <div class="card">
 <h3>CONEXIÓN DERIV</h3>
 <p id="estado">Conectando...</p>
-<p id="detalle">Preparando conexión</p>
+<p id="detalle">Preparando datos</p>
 <button onclick="conectar()">REConectar</button>
 </div>
 
 <div class="card">
 <h3>BOOM 1000 INDEX</h3>
-<div class="precio" id="precio">Esperando precio...</div>
-<p id="contador">Ticks recibidos: 0</p>
-<p id="hora">Esperando cotización</p>
+<div class="price" id="precio">Esperando...</div>
+<p id="ticks">Ticks: 0</p>
 </div>
 
 <div class="card">
-<h3>VELAS M1</h3>
-<p id="total1">Velas: 0</p>
-<div id="tabla1">Esperando historial...</div>
+<h3>FILTROS DEL SISTEMA</h3>
+<p id="tendencia">Tendencia M5: Esperando</p>
+<p id="ema">EMA 20 / EMA 50: --</p>
+<p id="rsi">RSI 14: --</p>
+<p id="atr">ATR 14: --</p>
+<p id="impulso">Impulso M1: --</p>
 </div>
 
 <div class="card">
-<h3>VELAS M5</h3>
-<p id="total5">Velas: 0</p>
-<div id="tabla5">Esperando historial...</div>
+<h2 id="senal" class="wait">ESPERANDO CONFIRMACIÓN BUY</h2>
+<p id="motivo">Analizando mercado...</p>
+<p id="entrada">Entrada: --</p>
+<p id="sl">Stop Loss: --</p>
+<p id="tp1">TP1: --</p>
+<p id="tp2">TP2: --</p>
+<p id="tp3">TP3: --</p>
 </div>
 
 <div class="card">
-<h3>ANÁLISIS BOOM PULSE</h3>
-<p>Tendencia principal: M5</p>
+<h3>HISTORIAL DE VELAS</h3>
+<p id="m1">M1: esperando...</p>
+<p id="m5">M5: esperando...</p>
+</div>
+
+<div class="card">
+<h3>CONFIGURACIÓN</h3>
+<p>Mercado: BOOM1000</p>
+<p>Marco principal: M5</p>
 <p>Entrada: M1</p>
-<p>Operaciones permitidas: BUY únicamente</p>
-<p id="analisis">Esperando suficientes datos...</p>
+<p>Operaciones: BUY únicamente</p>
+<p>Modo: Señales manuales</p>
+<p>Riesgo objetivo: 1% por operación</p>
 </div>
 </div>
 
 <script>
 let ws=null;
+let m1=[];
 let ticks=0;
-let candles1=new Map();
-let candles5=new Map();
-let pip=2;
+let pip=3;
+let ultimoMinuto=null;
+let ultimaSenal=null;
 
-function agregarTick(precio,epoch){
- const minuto=Math.floor(epoch/60)*60;
- const cinco=Math.floor(epoch/300)*300;
+const $=id=>document.getElementById(id);
 
- actualizarVela(candles1,minuto,precio);
- actualizarVela(candles5,cinco,precio);
+function precio(x){
+ return Number(x).toFixed(pip);
 }
 
-function actualizarVela(mapa,tiempo,precio){
- let v=mapa.get(tiempo);
-
- if(!v){
-  v={time:tiempo,open:precio,high:precio,low:precio,close:precio};
- }else{
-  v.high=Math.max(v.high,precio);
-  v.low=Math.min(v.low,precio);
-  v.close=precio;
+function ema(datos,periodo){
+ if(datos.length<periodo)return null;
+ let k=2/(periodo+1);
+ let valor=datos[0];
+ for(let i=1;i<datos.length;i++){
+  valor=datos[i]*k+valor*(1-k);
  }
- mapa.set(tiempo,v);
+ return valor;
 }
 
-function mostrarVelas(mapa,tabla,total){
- const datos=[...mapa.values()]
-  .sort((a,b)=>a.time-b.time);
- total.textContent="Velas recibidas: "+datos.length;
+function rsi(datos,periodo=14){
+ if(datos.length<=periodo)return null;
+ let ganancias=0,perdidas=0;
+ for(let i=datos.length-periodo;i<datos.length;i++){
+  let cambio=datos[i]-datos[i-1];
+  if(cambio>0)ganancias+=cambio;
+  else perdidas-=cambio;
+ }
+ if(perdidas===0)return 100;
+ let rs=(ganancias/periodo)/(perdidas/periodo);
+ return 100-(100/(1+rs));
+}
 
- const ultimas=datos.slice(-8).reverse();
+function atr(velas,periodo=14){
+ if(velas.length<periodo+1)return null;
+ let trs=[];
+ for(let i=1;i<velas.length;i++){
+  let c=velas[i],p=velas[i-1];
+  trs.push(Math.max(
+   c.high-c.low,
+   Math.abs(c.high-p.close),
+   Math.abs(c.low-p.close)
+  ));
+ }
+ return trs.slice(-periodo).reduce((a,b)=>a+b,0)/periodo;
+}
 
- if(!ultimas.length){
-  tabla.textContent="Esperando datos...";
+function agruparM5(datos){
+ let mapa=new Map();
+ for(const v of datos){
+  let t=Math.floor(v.time/300)*300;
+  let c=mapa.get(t);
+  if(!c){
+   mapa.set(t,{time:t,open:v.open,high:v.high,
+    low:v.low,close:v.close});
+  }else{
+   c.high=Math.max(c.high,v.high);
+   c.low=Math.min(c.low,v.low);
+   c.close=v.close;
+  }
+ }
+ return [...mapa.values()].sort((a,b)=>a.time-b.time);
+}
+
+function mostrarDatos(){
+ $("m1").textContent="M1: "+m1.length+" velas recibidas";
+ let cinco=agruparM5(m1);
+ $("m5").textContent="M5: "+cinco.length+" velas recibidas";
+}
+
+function evaluar(ahora){
+ const m5=agruparM5(m1);
+ const minutoActual=Math.floor(ahora/60)*60;
+ const m5Cerradas=m5.filter(v=>v.time+300<=Math.floor(ahora/300)*300);
+
+ if(m1.length<16 || m5Cerradas.length<51){
+  $("senal").textContent="ESPERANDO HISTORIAL";
+  $("motivo").textContent=
+   "Se necesitan al menos 16 velas M1 y 51 velas M5 cerradas.";
+  $("tendencia").textContent="Tendencia M5: datos insuficientes";
   return;
  }
 
- let html="<table><tr><th>Hora</th><th>Apertura</th><th>Máximo</th><th>Mínimo</th><th>Cierre</th></tr>";
+ const closes5=m5Cerradas.map(v=>v.close);
+ const e20=ema(closes5,20);
+ const e50=ema(closes5,50);
+ const ultimo5=m5Cerradas[m5Cerradas.length-1];
 
- ultimas.forEach(v=>{
-  html+="<tr><td>"+new Date(v.time*1000).toLocaleTimeString()+
-  "</td><td>"+v.open.toFixed(pip)+
-  "</td><td>"+v.high.toFixed(pip)+
-  "</td><td>"+v.low.toFixed(pip)+
-  "</td><td>"+v.close.toFixed(pip)+"</td></tr>";
- });
+ const cerradas=m1.filter(v=>v.time<minutoActual);
+ if(cerradas.length<16)return;
 
- html+="</table>";
- tabla.innerHTML=html;
+ const closes=cerradas.map(v=>v.close);
+ const r=rsi(closes);
+ const a=atr(cerradas);
+ const actual=cerradas[cerradas.length-1];
+ const anterior=cerradas[cerradas.length-2];
+
+ if(r===null||a===null||!a)return;
+
+ const cuerpo=actual.close-actual.open;
+ const rango=actual.high-actual.low;
+ const cierreArriba=rango>0 &&
+  (actual.high-actual.close)/rango<=0.25;
+
+ const tendencia=e20>e50 && ultimo5.close>e20;
+ const fuerza=r>=53 && r<=68;
+ const impulso=cuerpo>=1.25*a && cierreArriba;
+ const ruptura=actual.close>anterior.high;
+
+ $("tendencia").textContent="Tendencia M5: "+(tendencia?"ALCISTA":"NO ALCISTA");
+ $("tendencia").className=tendencia?"good":"wait";
+ $("ema").textContent="EMA20: "+precio(e20)+" | EMA50: "+precio(e50);
+ $("rsi").textContent="RSI 14: "+r.toFixed(2);
+ $("atr").textContent="ATR 14: "+precio(a);
+ $("impulso").textContent="Impulso M1: "+(impulso?"CONFIRMADO":"NO CONFIRMADO");
+
+ const lista=[
+  ["Tendencia M5",tendencia],
+  ["RSI comprador",fuerza],
+  ["Impulso alcista",impulso],
+  ["Ruptura anterior",ruptura]
+ ];
+ $("motivo").textContent=lista.map(x=>
+  x[0]+": "+(x[1]?"OK":"NO")
+ ).join(" | ");
+
+ const confirmada=tendencia&&fuerza&&impulso&&ruptura;
+
+ if(confirmada && ultimaSenal!==actual.time){
+  ultimaSenal=actual.time;
+  const entrada=actual.close;
+  $("senal").textContent="SEÑAL BUY CONFIRMADA";
+  $("senal").className="good";
+  $("entrada").textContent="Entrada: "+precio(entrada);
+  $("sl").textContent="Stop Loss: "+precio(entrada-1.2*a);
+  $("tp1").textContent="TP1: "+precio(entrada+1.0*a);
+  $("tp2").textContent="TP2: "+precio(entrada+1.8*a);
+  $("tp3").textContent="TP3: "+precio(entrada+2.5*a);
+  $("motivo").textContent="Los cuatro filtros BUY coinciden. Señal calculada al cierre de M1.";
+ }else if(!confirmada){
+  $("senal").textContent="SIN SEÑAL BUY";
+  $("senal").className="wait";
+  $("entrada").textContent="Entrada: --";
+  $("sl").textContent="Stop Loss: --";
+  $("tp1").textContent="TP1: --";
+  $("tp2").textContent="TP2: --";
+  $("tp3").textContent="TP3: --";
+ }else{
+  $("senal").textContent="SEÑAL BUY YA REGISTRADA";
+ }
 }
 
-function actualizarPantalla(){
- mostrarVelas(
-  candles1,
-  document.getElementById("tabla1"),
-  document.getElementById("total1")
- );
+function actualizarVela(v){
+ let minuto=Math.floor(v.time/60)*60;
+ let ultima=m1[m1.length-1];
 
- mostrarVelas(
-  candles5,
-  document.getElementById("tabla5"),
-  document.getElementById("total5")
- );
-
- if(candles1.size>=5 && candles5.size>=3){
-  document.getElementById("analisis").textContent=
-   "Historial recibido. Preparando filtros de tendencia y entradas BUY.";
+ if(!ultima || minuto>ultima.time){
+  if(ultima){
+   evaluar(v.time);
+  }
+  m1.push({
+   time:minuto,open:v.price,high:v.price,
+   low:v.price,close:v.price
+  });
+ }else if(minuto===ultima.time){
+  ultima.high=Math.max(ultima.high,v.price);
+  ultima.low=Math.min(ultima.low,v.price);
+  ultima.close=v.price;
  }
+ if(m1.length>1100)m1=m1.slice(-1100);
+ mostrarDatos();
 }
 
 function conectar(){
  if(ws){
   try{ws.close()}catch(e){}
  }
-
+ m1=[];
  ticks=0;
- candles1.clear();
- candles5.clear();
+ ultimaSenal=null;
+ $("estado").textContent="Conectando...";
+ $("detalle").textContent="Solicitando historial M1";
+ $("senal").textContent="ESPERANDO DATOS";
+ $("motivo").textContent="Cargando historial...";
 
- document.getElementById("estado").textContent="Conectando...";
- document.getElementById("detalle").textContent="Solicitando historial y cotizaciones";
- document.getElementById("precio").textContent="Esperando precio...";
- document.getElementById("analisis").textContent="Esperando suficientes datos...";
-
- actualizarPantalla();
-
- ws=new WebSocket(
-  "wss://api.derivws.com/trading/v1/options/ws/public"
- );
+ ws=new WebSocket("wss://api.derivws.com/trading/v1/options/ws/public");
 
  ws.onopen=()=>{
-  document.getElementById("estado").textContent="Conectado a Deriv";
-  document.getElementById("detalle").textContent="Solicitando historial M1 y M5";
-
+  $("estado").textContent="Conectado a Deriv";
   ws.send(JSON.stringify({
    ticks_history:"BOOM1000",
-   count:1000,
+   count:500,
    end:"latest",
-   style:"ticks",
+   style:"candles",
+   granularity:60,
    req_id:1
   }));
-
   ws.send(JSON.stringify({
    ticks:"BOOM1000",
    subscribe:1,
@@ -173,56 +283,46 @@ function conectar(){
   try{d=JSON.parse(event.data)}catch(e){return;}
 
   if(d.error){
-   document.getElementById("detalle").textContent=
-    "Error: "+d.error.message;
+   $("detalle").textContent="Error: "+d.error.message;
    return;
   }
 
-  if(d.msg_type==="history" && d.history){
-   const prices=d.history.prices||[];
-   const times=d.history.times||[];
+  if(d.msg_type==="candles" && d.candles){
+   m1=d.candles.map(c=>({
+    time:Number(c.epoch),
+    open:Number(c.open),
+    high:Number(c.high),
+    low:Number(c.low),
+    close:Number(c.close)
+   })).sort((a,b)=>a.time-b.time);
 
-   pip=d.pip_size ?? 2;
-
-   for(let i=0;i<Math.min(prices.length,times.length);i++){
-    agregarTick(Number(prices[i]),Number(times[i]));
-   }
-
-   document.getElementById("detalle").textContent=
-    "Historial recibido: "+prices.length+" ticks.";
-   actualizarPantalla();
+   pip=d.pip_size??3;
+   $("detalle").textContent="Historial M1 cargado: "+m1.length+" velas.";
+   mostrarDatos();
   }
 
   if(d.msg_type==="tick" && d.tick){
-   const precio=Number(d.tick.quote);
-   const tiempo=Number(d.tick.epoch);
-
-   if(!Number.isFinite(precio)||!Number.isFinite(tiempo))return;
-
-   pip=d.tick.pip_size ?? pip;
+   let p=Number(d.tick.quote);
+   let t=Number(d.tick.epoch);
+   pip=d.tick.pip_size??pip;
    ticks++;
 
-   agregarTick(precio,tiempo);
+   $("precio").textContent=precio(p);
+   $("ticks").textContent="Ticks nuevos: "+ticks;
+   $("estado").textContent="Conectado a Deriv";
+   $("detalle").textContent="Recibiendo cotizaciones en vivo";
 
-   document.getElementById("estado").textContent="Conectado a Deriv";
-   document.getElementById("detalle").textContent="Recibiendo cotizaciones en vivo";
-   document.getElementById("precio").textContent=precio.toFixed(pip);
-   document.getElementById("contador").textContent="Ticks nuevos: "+ticks;
-   document.getElementById("hora").textContent=
-    "Último tick: "+new Date(tiempo*1000).toLocaleTimeString();
-
-   actualizarPantalla();
+   actualizarVela({price:p,time:t});
   }
  };
 
  ws.onerror=()=>{
-  document.getElementById("estado").textContent="Error de conexión";
+  $("estado").textContent="Error de conexión";
  };
 
- ws.onclose=(event)=>{
-  document.getElementById("estado").textContent="Conexión cerrada";
-  document.getElementById("detalle").textContent=
-   "Código: "+event.code+" | "+(event.reason||"Sin motivo");
+ ws.onclose=(e)=>{
+  $("estado").textContent="Conexión cerrada";
+  $("detalle").textContent="Código: "+e.code+" | "+(e.reason||"Sin motivo");
  };
 }
 
@@ -230,6 +330,7 @@ conectar();
 </script>
 </body>
 </html>
+
 
 
 
